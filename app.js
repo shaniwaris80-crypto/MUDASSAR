@@ -9,9 +9,6 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
 import {
   getFirestore,
-  doc,
-  getDoc,
-  setDoc,
   collection,
   addDoc,
   query,
@@ -40,7 +37,7 @@ const db = getFirestore(app);
 await setPersistence(auth, browserLocalPersistence);
 
 /* =========================
-   FIXED STAFF LOGIN MAP
+   FIXED STAFF LIST
 ========================= */
 const STAFF = {
   mudassar: {
@@ -48,10 +45,11 @@ const STAFF = {
     fullName: "MUDASSAR",
     email: "mudassar@fleet.app",
     password: "mudassar1990",
-    pin: "1990",
+    pin: "",
     role: "manager",
     canDrive: true,
-    managerKey: null,
+    managerKey: "mudassar",
+    managerName: "MUDASSAR",
   },
   saqlain: {
     staffKey: "saqlain",
@@ -62,6 +60,7 @@ const STAFF = {
     role: "driver",
     canDrive: true,
     managerKey: "mudassar",
+    managerName: "MUDASSAR",
   },
   shujaat: {
     staffKey: "shujaat",
@@ -72,6 +71,7 @@ const STAFF = {
     role: "driver",
     canDrive: true,
     managerKey: "mudassar",
+    managerName: "MUDASSAR",
   },
 };
 
@@ -86,9 +86,8 @@ const STAFF_BY_EMAIL = Object.values(STAFF).reduce((acc, item) => {
 const state = {
   authUser: null,
   profile: null,
-  visibleUsers: [],
+  visibleProfiles: [],
   shifts: [],
-  unsubUsers: null,
   unsubShifts: null,
 };
 
@@ -152,19 +151,15 @@ function statCard(label, value, sub = "") {
   `;
 }
 
-function cleanupSubs() {
-  if (typeof state.unsubUsers === "function") state.unsubUsers();
-  if (typeof state.unsubShifts === "function") state.unsubShifts();
-  state.unsubUsers = null;
-  state.unsubShifts = null;
-}
-
-function getStaticStaffByKey(staffKey) {
+function getProfileByKey(staffKey) {
   return STAFF[staffKey] || null;
 }
 
-function getStaticStaffName(staffKey) {
-  return getStaticStaffByKey(staffKey)?.fullName || "";
+function cleanupSubs() {
+  if (typeof state.unsubShifts === "function") {
+    state.unsubShifts();
+    state.unsubShifts = null;
+  }
 }
 
 /* =========================
@@ -189,13 +184,38 @@ $("themeToggleBtn")?.addEventListener("click", () => {
 });
 
 /* =========================
+   LOGIN MODE
+========================= */
+function updateLoginMode() {
+  const selectedKey = $("loginStaff").value;
+  const selected = STAFF[selectedKey];
+
+  if (!selected) return;
+
+  const isManager = selected.role === "manager";
+
+  $("pinWrap").classList.toggle("hidden", isManager);
+  $("loginPin").required = !isManager;
+  $("loginPin").disabled = isManager;
+  $("loginPin").value = "";
+
+  $("loginHint").textContent = isManager
+    ? "Manager quick access is enabled for Mudassar. No PIN required."
+    : `Enter PIN for ${selected.fullName}.`;
+
+  $("loginBtn").textContent = isManager ? "Sign in as manager" : "Sign in";
+}
+
+$("loginStaff").addEventListener("change", updateLoginMode);
+updateLoginMode();
+
+/* =========================
    LOGIN
 ========================= */
 $("loginForm").addEventListener("submit", async (e) => {
   e.preventDefault();
 
   const selectedKey = $("loginStaff").value;
-  const pin = $("loginPin").value.trim();
   const selected = STAFF[selectedKey];
 
   if (!selected) {
@@ -203,9 +223,12 @@ $("loginForm").addEventListener("submit", async (e) => {
     return;
   }
 
-  if (pin !== selected.pin) {
-    showToast("Wrong PIN.");
-    return;
+  if (selected.role !== "manager") {
+    const pin = $("loginPin").value.trim();
+    if (pin !== selected.pin) {
+      showToast("Wrong PIN.");
+      return;
+    }
   }
 
   try {
@@ -237,57 +260,29 @@ onAuthStateChanged(auth, async (user) => {
   if (!user) {
     state.authUser = null;
     state.profile = null;
-    state.visibleUsers = [];
+    state.visibleProfiles = [];
     state.shifts = [];
     $("authView").classList.remove("hidden");
     $("appView").classList.add("hidden");
     return;
   }
 
-  const staticStaff = STAFF_BY_EMAIL[user.email || ""];
-  if (!staticStaff) {
-    showToast("This user is not allowed in this app.");
+  const profile = STAFF_BY_EMAIL[user.email || ""];
+
+  if (!profile) {
+    showToast("This account is not allowed in this app.");
     await signOut(auth);
     return;
   }
 
-  try {
-    const profileRef = doc(db, "users", user.uid);
-    const profileSnap = await getDoc(profileRef);
-    const existing = profileSnap.exists() ? profileSnap.data() : {};
+  state.authUser = user;
+  state.profile = profile;
+  state.visibleProfiles =
+    profile.role === "manager"
+      ? Object.values(STAFF)
+      : [profile];
 
-    const mergedProfile = {
-      uid: user.uid,
-      staffKey: staticStaff.staffKey,
-      fullName: staticStaff.fullName,
-      email: staticStaff.email,
-      role: staticStaff.role,
-      canDrive: staticStaff.canDrive,
-      managerKey: staticStaff.managerKey,
-      active: existing.active !== false,
-      createdAt: existing.createdAt || serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    };
-
-    await setDoc(profileRef, mergedProfile, { merge: true });
-
-    if (mergedProfile.active === false) {
-      showToast("This account is disabled.");
-      await signOut(auth);
-      return;
-    }
-
-    state.authUser = user;
-    state.profile = {
-      ...existing,
-      ...mergedProfile,
-    };
-
-    bootApp();
-  } catch (err) {
-    console.error(err);
-    showToast("Could not load profile.");
-  }
+  bootApp();
 });
 
 /* =========================
@@ -299,19 +294,19 @@ function bootApp() {
 
   $("sidebarName").textContent = state.profile.fullName || "User";
   $("sidebarRole").textContent =
-    state.profile.role === "manager" && state.profile.canDrive
-      ? "Manager / Driver"
-      : state.profile.role || "driver";
+    state.profile.role === "manager" ? "Manager / Driver" : "Driver";
   $("sidebarAvatar").textContent = initials(state.profile.fullName);
   $("topbarDate").textContent = dateLabel();
 
   $("driverSelectWrap").classList.toggle("hidden", state.profile.role !== "manager");
-  $("reportDriverWrap").classList.toggle("hidden", state.profile.role === "driver");
+  $("reportDriverWrap").classList.toggle("hidden", state.profile.role !== "manager");
 
   attachNav();
   setDefaults();
-  subscribeUsers();
+  populateDriverSelect();
+  populateReportDriverSelect();
   subscribeShifts();
+  renderProfiles();
   renderShiftPreview();
   applyTheme(document.body.getAttribute("data-theme") || "light");
 }
@@ -335,7 +330,7 @@ function openView(viewId) {
 
   const map = {
     dashboardView: ["Dashboard", "Realtime totals and overview"],
-    shiftView: ["New Shift", "Mileage, money and fuel"],
+    shiftView: ["New Shift", "Manager can save on behalf of all drivers"],
     shiftsView: ["Shift History", "Saved shifts"],
     reportsView: ["Reports", "Totals by period"],
     profilesView: ["Profiles", "Drivers and manager"],
@@ -346,41 +341,13 @@ function openView(viewId) {
 }
 
 /* =========================
-   USERS SUBSCRIPTION
-========================= */
-function subscribeUsers() {
-  const usersRef = collection(db, "users");
-
-  if (state.profile.role === "manager") {
-    const q = query(usersRef, where("managerKey", "==", state.profile.staffKey));
-    state.unsubUsers = onSnapshot(q, (snap) => {
-      const team = snap.docs.map((d) => d.data());
-      state.visibleUsers = [state.profile, ...team];
-      afterUsersLoaded();
-    });
-    return;
-  }
-
-  state.visibleUsers = [state.profile];
-  afterUsersLoaded();
-}
-
-function afterUsersLoaded() {
-  populateDriverSelect();
-  populateReportDriverSelect();
-  renderProfiles();
-  renderDashboard();
-  renderReports();
-}
-
-/* =========================
    SHIFTS SUBSCRIPTION
 ========================= */
 function subscribeShifts() {
   const shiftsRef = collection(db, "shifts");
 
   if (state.profile.role === "manager") {
-    const q = query(shiftsRef, where("managerKey", "==", state.profile.staffKey));
+    const q = query(shiftsRef, where("managerKey", "==", "mudassar"));
     state.unsubShifts = onSnapshot(q, (snap) => {
       state.shifts = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
@@ -421,6 +388,10 @@ function setDefaults() {
   ].forEach((id) => {
     $(id).value = "0";
   });
+
+  if (state.profile.role === "manager") {
+    $("sfDriverKey").value = "mudassar";
+  }
 }
 
 $("resetShiftBtn").addEventListener("click", () => {
@@ -455,27 +426,18 @@ $("resetShiftBtn").addEventListener("click", () => {
   $(id)?.addEventListener("change", renderShiftPreview);
 });
 
-function getVisibleUserByStaffKey(staffKey) {
-  return state.visibleUsers.find((u) => u.staffKey === staffKey) || null;
-}
-
-function getDrivableUsers() {
-  if (state.profile.role === "manager") {
-    return state.visibleUsers.filter((u) => u.role === "driver" || u.staffKey === state.profile.staffKey);
-  }
-  return [state.profile];
+function getDrivableProfiles() {
+  return Object.values(STAFF).filter((p) => p.canDrive);
 }
 
 function populateDriverSelect() {
-  const select = $("sfDriverKey");
-
   if (state.profile.role !== "manager") {
-    select.innerHTML = "";
+    $("sfDriverKey").innerHTML = "";
     return;
   }
 
-  const drivers = getDrivableUsers();
-  select.innerHTML = drivers
+  const drivers = getDrivableProfiles();
+  $("sfDriverKey").innerHTML = drivers
     .map((user) => `<option value="${user.staffKey}">${esc(user.fullName)}</option>`)
     .join("");
 }
@@ -483,12 +445,12 @@ function populateDriverSelect() {
 function populateReportDriverSelect() {
   const select = $("reportDriverFilter");
 
-  if (state.profile.role === "driver") {
+  if (state.profile.role !== "manager") {
     select.innerHTML = `<option value="${state.profile.staffKey}">${esc(state.profile.fullName)}</option>`;
     return;
   }
 
-  const drivers = getDrivableUsers();
+  const drivers = getDrivableProfiles();
   select.innerHTML =
     `<option value="all">All</option>` +
     drivers.map((u) => `<option value="${u.staffKey}">${esc(u.fullName)}</option>`).join("");
@@ -556,27 +518,17 @@ function calculateShift(raw) {
 }
 
 function buildShiftPayload() {
-  const isManager = state.profile.role === "manager";
-
-  let driverKey = state.profile.staffKey;
   let driverProfile = state.profile;
 
-  if (isManager) {
-    driverKey = $("sfDriverKey").value || state.profile.staffKey;
-    driverProfile = getVisibleUserByStaffKey(driverKey) || state.profile;
+  if (state.profile.role === "manager") {
+    driverProfile = getProfileByKey($("sfDriverKey").value) || state.profile;
   }
 
-  const managerKey = isManager ? state.profile.staffKey : state.profile.managerKey;
-  const managerName = managerKey
-    ? getVisibleUserByStaffKey(managerKey)?.fullName || getStaticStaffName(managerKey)
-    : "";
-
   const raw = {
-    driverUid: driverProfile.uid || null,
-    driverKey,
-    driverName: driverProfile.fullName || getStaticStaffName(driverKey),
-    managerKey: managerKey || null,
-    managerName,
+    driverKey: driverProfile.staffKey,
+    driverName: driverProfile.fullName,
+    managerKey: "mudassar",
+    managerName: "MUDASSAR",
     vehicle: $("sfVehicle").value.trim(),
     dateKey: $("sfDate").value,
     startTime: $("sfStartTime").value,
@@ -841,9 +793,9 @@ $("reportDriverFilter").addEventListener("change", renderReports);
 function renderReports() {
   const range = $("reportRange").value;
   const driverKey =
-    state.profile.role === "driver"
-      ? state.profile.staffKey
-      : $("reportDriverFilter").value;
+    state.profile.role === "manager"
+      ? $("reportDriverFilter").value
+      : state.profile.staffKey;
 
   const rows = filterShifts(range, driverKey);
   const sum = summarize(rows);
@@ -890,7 +842,7 @@ function renderShiftsTable() {
    PROFILES
 ========================= */
 function renderProfiles() {
-  const rows = state.visibleUsers;
+  const rows = state.visibleProfiles;
   const drivers = rows.filter((u) => u.role === "driver").length;
   const managers = rows.filter((u) => u.role === "manager").length;
 
@@ -907,15 +859,12 @@ function renderProfiles() {
           <div class="avatar">${esc(initials(u.fullName))}</div>
           <div>
             <div class="profile-name">${esc(u.fullName || "User")}</div>
-            <div class="profile-role">
-              ${esc(u.role === "manager" && u.canDrive ? "Manager / Driver" : (u.role || "driver"))}
-            </div>
+            <div class="profile-role">${esc(u.role === "manager" ? "Manager / Driver" : "Driver")}</div>
           </div>
         </div>
         <p class="muted">Email: ${esc(u.email || "-")}</p>
         <p class="muted">Staff key: ${esc(u.staffKey || "-")}</p>
         <p class="muted">Manager key: ${esc(u.managerKey || "-")}</p>
-        <p class="muted">Status: ${u.active === false ? "inactive" : "active"}</p>
       </div>
     `)
     .join("");
