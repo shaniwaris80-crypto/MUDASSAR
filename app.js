@@ -1,5 +1,4 @@
-
-import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.0/firebase-app.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
 import {
   getAuth,
   onAuthStateChanged,
@@ -8,34 +7,31 @@ import {
   signOut,
   setPersistence,
   browserLocalPersistence,
-} from "https://www.gstatic.com/firebasejs/11.0.0/firebase-auth.js";
+} from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
 import {
   getFirestore,
   doc,
   getDoc,
   setDoc,
-  updateDoc,
   collection,
   addDoc,
   query,
   where,
   onSnapshot,
   serverTimestamp,
-} from "https://www.gstatic.com/firebasejs/11.0.0/firebase-firestore.js";
+} from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
 
-/**
- * ------------------------------------------------------------
- * 1) FIREBASE CONFIG
- * ------------------------------------------------------------
- * Replace with your Firebase project config
- */
+/* =========================
+   FIREBASE CONFIG
+========================= */
 const firebaseConfig = {
-  apiKey: "PUT_YOUR_API_KEY",
-  authDomain: "PUT_YOUR_AUTH_DOMAIN",
-  projectId: "PUT_YOUR_PROJECT_ID",
-  storageBucket: "PUT_YOUR_STORAGE_BUCKET",
-  messagingSenderId: "PUT_YOUR_MESSAGING_SENDER_ID",
-  appId: "PUT_YOUR_APP_ID",
+  apiKey: "AIzaSyCU5HPe6BgavLPG91g8P1_mPqtqaoXo8jo",
+  authDomain: "mudassar-eaff1.firebaseapp.com",
+  projectId: "mudassar-eaff1",
+  storageBucket: "mudassar-eaff1.firebasestorage.app",
+  messagingSenderId: "993162447687",
+  appId: "1:993162447687:web:e61c85d4f823093cd29a62",
+  measurementId: "G-TR8P3854MG",
 };
 
 const app = initializeApp(firebaseConfig);
@@ -44,39 +40,30 @@ const db = getFirestore(app);
 
 await setPersistence(auth, browserLocalPersistence);
 
-/**
- * ------------------------------------------------------------
- * 2) STATE
- * ------------------------------------------------------------
- */
+/* =========================
+   STATE
+========================= */
 const state = {
   authUser: null,
   profile: null,
-  shifts: [],
   users: [],
-  unsubShifts: null,
+  shifts: [],
   unsubUsers: null,
-  currentView: "dashboardView",
+  unsubShifts: null,
 };
 
-/**
- * ------------------------------------------------------------
- * 3) DOM HELPERS
- * ------------------------------------------------------------
- */
+/* =========================
+   HELPERS
+========================= */
 const $ = (id) => document.getElementById(id);
-const money = (n) => `€${Number(n || 0).toFixed(2)}`;
-const num = (v) => {
+
+function num(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
-};
+}
 
-function safeText(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+function money(v) {
+  return `€${num(v).toFixed(2)}`;
 }
 
 function showToast(message) {
@@ -84,30 +71,80 @@ function showToast(message) {
   toast.textContent = message;
   toast.classList.remove("hidden");
   clearTimeout(showToast._t);
-  showToast._t = setTimeout(() => toast.classList.add("hidden"), 2600);
+  showToast._t = setTimeout(() => toast.classList.add("hidden"), 2500);
+}
+
+function esc(str) {
+  return String(str ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function initials(name) {
+  return String(name || "U")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((x) => x[0]?.toUpperCase() || "")
+    .join("") || "U";
 }
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function nowDateLabel() {
+function dateLabel() {
   return new Intl.DateTimeFormat("en-GB", {
     dateStyle: "full",
     timeStyle: "short",
   }).format(new Date());
 }
 
-function getInitials(name) {
-  const parts = String(name || "U").trim().split(/\s+/);
-  return parts.slice(0, 2).map((p) => p[0]?.toUpperCase() || "").join("") || "U";
+function statCard(label, value, sub = "") {
+  return `
+    <div class="stat-card">
+      <div class="stat-label">${esc(label)}</div>
+      <div class="stat-value">${esc(value)}</div>
+      <div class="stat-sub">${esc(sub)}</div>
+    </div>
+  `;
 }
 
-/**
- * ------------------------------------------------------------
- * 4) AUTH TABS
- * ------------------------------------------------------------
- */
+function cleanupSubs() {
+  if (typeof state.unsubUsers === "function") state.unsubUsers();
+  if (typeof state.unsubShifts === "function") state.unsubShifts();
+  state.unsubUsers = null;
+  state.unsubShifts = null;
+}
+
+/* =========================
+   THEME
+========================= */
+const themeKey = "taxi_theme";
+
+function applyTheme(theme) {
+  document.body.setAttribute("data-theme", theme);
+  $("themeToggleBtn").textContent = theme === "light" ? "Night mode" : "Day mode";
+  localStorage.setItem(themeKey, theme);
+}
+
+function initTheme() {
+  const saved = localStorage.getItem(themeKey) || "light";
+  document.body.setAttribute("data-theme", saved);
+}
+
+initTheme();
+
+$("themeToggleBtn")?.addEventListener("click", () => {
+  const current = document.body.getAttribute("data-theme") || "light";
+  applyTheme(current === "light" ? "dark" : "light");
+});
+
+/* =========================
+   AUTH TABS
+========================= */
 $("loginTabBtn").addEventListener("click", () => {
   $("loginTabBtn").classList.add("active");
   $("registerTabBtn").classList.remove("active");
@@ -122,11 +159,9 @@ $("registerTabBtn").addEventListener("click", () => {
   $("loginForm").classList.add("hidden");
 });
 
-/**
- * ------------------------------------------------------------
- * 5) AUTH ACTIONS
- * ------------------------------------------------------------
- */
+/* =========================
+   AUTH ACTIONS
+========================= */
 $("registerForm").addEventListener("submit", async (e) => {
   e.preventDefault();
 
@@ -137,12 +172,13 @@ $("registerForm").addEventListener("submit", async (e) => {
   const role = $("registerRole").value;
 
   if (!fullName || !email || !password) {
-    showToast("Please complete the register form.");
+    showToast("Complete all required fields.");
     return;
   }
 
   try {
     const cred = await createUserWithEmailAndPassword(auth, email, password);
+
     await setDoc(doc(db, "users", cred.user.uid), {
       uid: cred.user.uid,
       fullName,
@@ -156,24 +192,25 @@ $("registerForm").addEventListener("submit", async (e) => {
     });
 
     showToast("Account created.");
-  } catch (error) {
-    console.error(error);
-    showToast(error.message || "Registration failed.");
+  } catch (err) {
+    console.error(err);
+    showToast(err.message || "Registration failed.");
   }
 });
 
 $("loginForm").addEventListener("submit", async (e) => {
   e.preventDefault();
 
-  const email = $("loginEmail").value.trim();
-  const password = $("loginPassword").value;
-
   try {
-    await signInWithEmailAndPassword(auth, email, password);
+    await signInWithEmailAndPassword(
+      auth,
+      $("loginEmail").value.trim(),
+      $("loginPassword").value
+    );
     showToast("Signed in.");
-  } catch (error) {
-    console.error(error);
-    showToast(error.message || "Login failed.");
+  } catch (err) {
+    console.error(err);
+    showToast(err.message || "Login failed.");
   }
 });
 
@@ -181,52 +218,48 @@ $("logoutBtn").addEventListener("click", async () => {
   try {
     await signOut(auth);
     showToast("Logged out.");
-  } catch (error) {
-    console.error(error);
-    showToast("Could not log out.");
+  } catch (err) {
+    console.error(err);
+    showToast("Logout failed.");
   }
 });
 
-/**
- * ------------------------------------------------------------
- * 6) AUTH STATE
- * ------------------------------------------------------------
- */
+/* =========================
+   AUTH STATE
+========================= */
 onAuthStateChanged(auth, async (user) => {
-  cleanupSubscriptions();
+  cleanupSubs();
 
   if (!user) {
     state.authUser = null;
     state.profile = null;
-    state.shifts = [];
     state.users = [];
+    state.shifts = [];
     $("authView").classList.remove("hidden");
     $("appView").classList.add("hidden");
     return;
   }
 
   try {
-    state.authUser = user;
-    let userSnap = await getDoc(doc(db, "users", user.uid));
+    const profileRef = doc(db, "users", user.uid);
+    let profileSnap = await getDoc(profileRef);
 
-    // Convenience fallback for first login if profile doc is missing.
-    if (!userSnap.exists()) {
-      const fallbackProfile = {
+    if (!profileSnap.exists()) {
+      await setDoc(profileRef, {
         uid: user.uid,
-        fullName: user.email?.split("@")[0] || "Driver",
-        email: user.email || "",
+        fullName: user.email?.split("@")[0] || "User",
         phone: "",
+        email: user.email || "",
         role: "driver",
         managerId: null,
         active: true,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      };
-      await setDoc(doc(db, "users", user.uid), fallbackProfile);
-      userSnap = await getDoc(doc(db, "users", user.uid));
+      });
+      profileSnap = await getDoc(profileRef);
     }
 
-    const profile = userSnap.data();
+    const profile = profileSnap.data();
 
     if (profile.active === false) {
       showToast("This account is disabled.");
@@ -234,63 +267,41 @@ onAuthStateChanged(auth, async (user) => {
       return;
     }
 
+    state.authUser = user;
     state.profile = profile;
+
     bootApp();
-  } catch (error) {
-    console.error(error);
-    showToast("Failed to load profile.");
+  } catch (err) {
+    console.error(err);
+    showToast("Could not load user profile.");
   }
 });
 
-function cleanupSubscriptions() {
-  if (typeof state.unsubShifts === "function") {
-    state.unsubShifts();
-    state.unsubShifts = null;
-  }
-  if (typeof state.unsubUsers === "function") {
-    state.unsubUsers();
-    state.unsubUsers = null;
-  }
-}
-
-/**
- * ------------------------------------------------------------
- * 7) BOOT APP
- * ------------------------------------------------------------
- */
+/* =========================
+   BOOT
+========================= */
 function bootApp() {
   $("authView").classList.add("hidden");
   $("appView").classList.remove("hidden");
 
   $("sidebarName").textContent = state.profile.fullName || "User";
   $("sidebarRole").textContent = state.profile.role || "driver";
-  $("sidebarAvatar").textContent = getInitials(state.profile.fullName);
-  $("topbarDate").textContent = nowDateLabel();
+  $("sidebarAvatar").textContent = initials(state.profile.fullName);
+  $("topbarDate").textContent = dateLabel();
 
-  applyRoleVisibility();
+  $("driverSelectWrap").classList.toggle("hidden", state.profile.role === "driver");
+  $("reportDriverWrap").classList.toggle("hidden", state.profile.role === "driver");
+
   attachNav();
+  setDefaults();
   subscribeUsers();
   subscribeShifts();
-  setDefaultShiftFormValues();
   renderShiftPreview();
 }
 
-function applyRoleVisibility() {
-  const role = state.profile.role;
-  const profilesBtn = [...document.querySelectorAll(".nav-btn")].find(
-    (btn) => btn.dataset.view === "usersView"
-  );
-
-  if (role === "driver") {
-    profilesBtn?.classList.remove("hidden");
-  } else {
-    profilesBtn?.classList.remove("hidden");
-  }
-
-  $("driverSelectWrap").classList.toggle("hidden", role === "driver");
-  $("reportDriverWrap").classList.toggle("hidden", role === "driver");
-}
-
+/* =========================
+   NAV
+========================= */
 function attachNav() {
   document.querySelectorAll(".nav-btn").forEach((btn) => {
     btn.onclick = () => {
@@ -302,27 +313,24 @@ function attachNav() {
 }
 
 function openView(viewId) {
-  state.currentView = viewId;
-  document.querySelectorAll(".view").forEach((view) => view.classList.add("hidden"));
+  document.querySelectorAll(".view").forEach((v) => v.classList.add("hidden"));
   $(viewId).classList.remove("hidden");
 
-  const titles = {
-    dashboardView: ["Dashboard", "Realtime totals and shift reporting"],
-    shiftView: ["New Shift", "Create a shift with mileage, fuel and payments"],
-    shiftsView: ["Shift History", "Review saved shifts"],
-    reportsView: ["Reports", "Period totals and individual breakdowns"],
-    usersView: ["Profiles", "Drivers, managers and team overview"],
+  const map = {
+    dashboardView: ["Dashboard", "Realtime totals"],
+    shiftView: ["New Shift", "Enter mileage, money and expenses"],
+    shiftsView: ["Shift History", "Saved shifts"],
+    reportsView: ["Reports", "Period totals"],
+    profilesView: ["Profiles", "Drivers and managers"],
   };
 
-  $("pageTitle").textContent = titles[viewId]?.[0] || "Dashboard";
-  $("pageSubtitle").textContent = titles[viewId]?.[1] || "";
+  $("pageTitle").textContent = map[viewId][0];
+  $("pageSubtitle").textContent = map[viewId][1];
 }
 
-/**
- * ------------------------------------------------------------
- * 8) SUBSCRIPTIONS
- * ------------------------------------------------------------
- */
+/* =========================
+   SUBSCRIPTIONS
+========================= */
 function subscribeUsers() {
   const usersRef = collection(db, "users");
   const role = state.profile.role;
@@ -330,7 +338,7 @@ function subscribeUsers() {
   if (role === "admin") {
     state.unsubUsers = onSnapshot(usersRef, (snap) => {
       state.users = snap.docs.map((d) => d.data());
-      onUsersLoaded();
+      afterUsers();
     });
     return;
   }
@@ -338,15 +346,14 @@ function subscribeUsers() {
   if (role === "manager") {
     const q = query(usersRef, where("managerId", "==", state.authUser.uid));
     state.unsubUsers = onSnapshot(q, (snap) => {
-      const team = snap.docs.map((d) => d.data());
-      state.users = [state.profile, ...team];
-      onUsersLoaded();
+      state.users = [state.profile, ...snap.docs.map((d) => d.data())];
+      afterUsers();
     });
     return;
   }
 
   state.users = [state.profile];
-  onUsersLoaded();
+  afterUsers();
 }
 
 function subscribeShifts() {
@@ -355,7 +362,7 @@ function subscribeShifts() {
 
   if (role === "admin") {
     state.unsubShifts = onSnapshot(shiftsRef, (snap) => {
-      state.shifts = normalizeShifts(snap.docs);
+      state.shifts = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       renderAll();
     });
     return;
@@ -364,7 +371,7 @@ function subscribeShifts() {
   if (role === "manager") {
     const q = query(shiftsRef, where("managerId", "==", state.authUser.uid));
     state.unsubShifts = onSnapshot(q, (snap) => {
-      state.shifts = normalizeShifts(snap.docs);
+      state.shifts = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       renderAll();
     });
     return;
@@ -372,23 +379,12 @@ function subscribeShifts() {
 
   const q = query(shiftsRef, where("driverId", "==", state.authUser.uid));
   state.unsubShifts = onSnapshot(q, (snap) => {
-    state.shifts = normalizeShifts(snap.docs);
+    state.shifts = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     renderAll();
   });
 }
 
-function normalizeShifts(docs) {
-  return docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    .sort((a, b) => {
-      const ad = a.dateKey || "";
-      const bd = b.dateKey || "";
-      if (ad !== bd) return bd.localeCompare(ad);
-      return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
-    });
-}
-
-function onUsersLoaded() {
+function afterUsers() {
   populateDriverSelect();
   populateReportDriverSelect();
   renderProfiles();
@@ -396,26 +392,32 @@ function onUsersLoaded() {
   renderReports();
 }
 
-/**
- * ------------------------------------------------------------
- * 9) SHIFT FORM
- * ------------------------------------------------------------
- */
-function setDefaultShiftFormValues() {
+/* =========================
+   SHIFT FORM
+========================= */
+function setDefaults() {
   $("sfDate").value = todayISO();
-  $("sfCash").value = "0";
-  $("sfCard").value = "0";
-  $("sfFreeNow").value = "0";
-  $("sfUber").value = "0";
-  $("sfBolt").value = "0";
-  $("sfOtherApps").value = "0";
-  $("sfOtherIncome").value = "0";
-  $("sfFuelExpenseTotal").value = "0";
-  $("sfCleaningExpense").value = "0";
-  $("sfParkingExpense").value = "0";
-  $("sfOtherExpenses").value = "0";
+  [
+    "sfCash",
+    "sfCard",
+    "sfFreeNow",
+    "sfUber",
+    "sfBolt",
+    "sfOtherApps",
+    "sfOtherIncome",
+    "sfFuelExpenseTotal",
+    "sfCleaningExpense",
+    "sfParkingExpense",
+    "sfOtherExpenses",
+  ].forEach((id) => ($(id).value = "0"));
   $("sfFuelSplitMode").value = "FULL";
 }
+
+$("resetShiftBtn").addEventListener("click", () => {
+  $("shiftForm").reset();
+  setDefaults();
+  renderShiftPreview();
+});
 
 [
   "sfDate",
@@ -443,127 +445,68 @@ function setDefaultShiftFormValues() {
   $(id)?.addEventListener("change", renderShiftPreview);
 });
 
-$("shiftResetBtn").addEventListener("click", () => {
-  $("shiftForm").reset();
-  setDefaultShiftFormValues();
-  renderShiftPreview();
-});
-
-$("shiftForm").addEventListener("submit", async (e) => {
-  e.preventDefault();
-
-  try {
-    const payload = buildShiftPayloadFromForm();
-    await addDoc(collection(db, "shifts"), payload);
-    showToast("Shift saved.");
-    $("shiftForm").reset();
-    setDefaultShiftFormValues();
-    renderShiftPreview();
-    openView("shiftsView");
-    setActiveNav("shiftsView");
-  } catch (error) {
-    console.error(error);
-    showToast(error.message || "Could not save shift.");
-  }
-});
-
-function setActiveNav(viewId) {
-  document.querySelectorAll(".nav-btn").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.view === viewId);
-  });
-}
-
 function populateDriverSelect() {
-  const select = $("sfDriverId");
-  const role = state.profile.role;
-
-  if (role === "driver") {
-    select.innerHTML = "";
-    return;
-  }
-
+  if (state.profile.role === "driver") return;
   const drivers = state.users.filter((u) => u.role === "driver");
-  select.innerHTML = drivers
-    .map((driver) => `<option value="${driver.uid}">${safeText(driver.fullName)}</option>`)
+  $("sfDriverId").innerHTML = drivers
+    .map((d) => `<option value="${d.uid}">${esc(d.fullName)}</option>`)
     .join("");
-
-  if (!drivers.length && role === "manager") {
-    select.innerHTML = `<option value="">No drivers assigned</option>`;
-  }
 }
 
 function populateReportDriverSelect() {
-  const select = $("reportDriverFilter");
-  const role = state.profile.role;
-
-  if (role === "driver") {
-    select.innerHTML = `<option value="${state.authUser.uid}">${safeText(state.profile.fullName)}</option>`;
+  if (state.profile.role === "driver") {
+    $("reportDriverFilter").innerHTML = `<option value="${state.authUser.uid}">${esc(state.profile.fullName)}</option>`;
     return;
   }
 
   const drivers = state.users.filter((u) => u.role === "driver");
-  select.innerHTML =
+  $("reportDriverFilter").innerHTML =
     `<option value="all">All</option>` +
-    drivers
-      .map((driver) => `<option value="${driver.uid}">${safeText(driver.fullName)}</option>`)
-      .join("");
+    drivers.map((d) => `<option value="${d.uid}">${esc(d.fullName)}</option>`).join("");
 }
 
-function getDriverById(uid) {
+function getUserById(uid) {
   return state.users.find((u) => u.uid === uid) || null;
 }
 
-function splitFuelExpense(total, mode) {
-  const value = num(total);
-  if (mode === "DIVIDE_BY_2") return value / 2;
-  if (mode === "DIVIDE_BY_3") return value / 3;
-  return value;
+function minutesBetween(dateStr, start, end) {
+  if (!dateStr || !start || !end) return 0;
+  const a = new Date(`${dateStr}T${start}:00`);
+  const b = new Date(`${dateStr}T${end}:00`);
+  let diff = b.getTime() - a.getTime();
+  if (diff < 0) diff += 24 * 60 * 60 * 1000;
+  return Math.round(diff / 60000);
 }
 
-function diffMinutes(dateISO, startTime, endTime) {
-  if (!dateISO || !startTime || !endTime) return 0;
-
-  const start = new Date(`${dateISO}T${startTime}:00`);
-  const end = new Date(`${dateISO}T${endTime}:00`);
-
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
-
-  let ms = end.getTime() - start.getTime();
-
-  // overnight shift support
-  if (ms < 0) {
-    ms += 24 * 60 * 60 * 1000;
-  }
-
-  return Math.round(ms / 60000);
+function splitFuel(total, mode) {
+  const v = num(total);
+  if (mode === "DIVIDE_BY_2") return v / 2;
+  if (mode === "DIVIDE_BY_3") return v / 3;
+  return v;
 }
 
-function calculateShiftTotals(raw) {
-  const workedMinutes = diffMinutes(raw.dateKey, raw.startTime, raw.endTime);
+function calculateShift(raw) {
+  const workedMinutes = minutesBetween(raw.dateKey, raw.startTime, raw.endTime);
   const workedHours = workedMinutes / 60;
+  const totalKm = num(raw.endMileage) - num(raw.startMileage);
 
-  const startMileage = num(raw.startMileage);
-  const endMileage = num(raw.endMileage);
-  const totalKm = endMileage - startMileage;
+  const totalApps =
+    num(raw.freeNow) + num(raw.uber) + num(raw.bolt) + num(raw.otherApps);
 
-  const cash = num(raw.cash);
-  const card = num(raw.card);
-  const freeNow = num(raw.freeNow);
-  const uber = num(raw.uber);
-  const bolt = num(raw.bolt);
-  const otherApps = num(raw.otherApps);
-  const otherIncome = num(raw.otherIncome);
+  const totalRevenue =
+    num(raw.cash) +
+    num(raw.card) +
+    totalApps +
+    num(raw.otherIncome);
 
-  const fuelExpenseTotal = num(raw.fuelExpenseTotal);
-  const fuelExpenseAllocated = splitFuelExpense(fuelExpenseTotal, raw.fuelSplitMode);
+  const fuelExpenseAllocated = splitFuel(raw.fuelExpenseTotal, raw.fuelSplitMode);
 
-  const cleaningExpense = num(raw.cleaningExpense);
-  const parkingExpense = num(raw.parkingExpense);
-  const otherExpenses = num(raw.otherExpenses);
+  const totalExpenses =
+    fuelExpenseAllocated +
+    num(raw.cleaningExpense) +
+    num(raw.parkingExpense) +
+    num(raw.otherExpenses);
 
-  const totalApps = freeNow + uber + bolt + otherApps;
-  const totalRevenue = cash + card + totalApps + otherIncome;
-  const totalExpenses = fuelExpenseAllocated + cleaningExpense + parkingExpense + otherExpenses;
   const netRevenue = totalRevenue - totalExpenses;
 
   return {
@@ -578,29 +521,23 @@ function calculateShiftTotals(raw) {
   };
 }
 
-function buildShiftPayloadFromForm() {
+function buildShiftPayload() {
   const role = state.profile.role;
 
   let driverId = state.authUser.uid;
   let driverName = state.profile.fullName;
   let managerId = state.profile.managerId || null;
-  let managerName = "";
+  let managerName = getUserById(managerId)?.fullName || "";
 
   if (role === "manager" || role === "admin") {
     driverId = $("sfDriverId").value;
-    if (!driverId) {
-      throw new Error("Please select a driver.");
-    }
-
-    const driver = getDriverById(driverId);
+    if (!driverId) throw new Error("Select a driver.");
+    const driver = getUserById(driverId);
     driverName = driver?.fullName || "Driver";
     managerId = role === "manager" ? state.authUser.uid : driver?.managerId || null;
-    managerName =
-      role === "manager"
-        ? state.profile.fullName
-        : getDriverById(driver?.managerId || "")?.fullName || "";
-  } else {
-    managerName = getDriverById(state.profile.managerId || "")?.fullName || "";
+    managerName = role === "manager"
+      ? state.profile.fullName
+      : getUserById(managerId)?.fullName || "";
   }
 
   const raw = {
@@ -630,18 +567,16 @@ function buildShiftPayloadFromForm() {
   };
 
   if (!raw.dateKey || !raw.startTime || !raw.endTime) {
-    throw new Error("Date, start time and end time are required.");
+    throw new Error("Date and times are required.");
   }
 
   if (raw.endMileage < raw.startMileage) {
     throw new Error("End mileage cannot be lower than start mileage.");
   }
 
-  const calculated = calculateShiftTotals(raw);
-
   return {
     ...raw,
-    ...calculated,
+    ...calculateShift(raw),
     status: "CLOSED",
     createdBy: state.authUser.uid,
     createdByRole: state.profile.role,
@@ -650,11 +585,28 @@ function buildShiftPayloadFromForm() {
   };
 }
 
-function renderShiftPreview() {
-  const preview = $("shiftPreview");
+$("shiftForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
 
   try {
-    const draft = {
+    const payload = buildShiftPayload();
+    await addDoc(collection(db, "shifts"), payload);
+    showToast("Shift saved.");
+    $("shiftForm").reset();
+    setDefaults();
+    renderShiftPreview();
+    openView("shiftsView");
+    document.querySelectorAll(".nav-btn").forEach((b) => b.classList.remove("active"));
+    document.querySelector('[data-view="shiftsView"]').classList.add("active");
+  } catch (err) {
+    console.error(err);
+    showToast(err.message || "Could not save shift.");
+  }
+});
+
+function renderShiftPreview() {
+  try {
+    const raw = {
       dateKey: $("sfDate").value || todayISO(),
       startTime: $("sfStartTime").value,
       endTime: $("sfEndTime").value,
@@ -674,38 +626,29 @@ function renderShiftPreview() {
       otherExpenses: $("sfOtherExpenses").value,
     };
 
-    const totals = calculateShiftTotals(draft);
-
-    preview.innerHTML = [
-      statCardHTML("Worked Hours", totals.workedHours.toFixed(2), `${totals.workedMinutes} min`),
-      statCardHTML("Total KM", totals.totalKm.toFixed(1), "Mileage delta"),
-      statCardHTML("Apps Total", money(totals.totalApps), "Free Now + Uber + Bolt + other"),
-      statCardHTML("Revenue", money(totals.totalRevenue), "Before expenses"),
-      statCardHTML("Fuel Allocated", money(totals.fuelExpenseAllocated), $("sfFuelSplitMode").value),
-      statCardHTML("Total Expenses", money(totals.totalExpenses), "Fuel + cleaning + parking + other"),
-      statCardHTML("Net Revenue", money(totals.netRevenue), "Revenue - expenses"),
+    const x = calculateShift(raw);
+    $("shiftPreview").innerHTML = [
+      statCard("Worked Hours", x.workedHours.toFixed(2), `${x.workedMinutes} min`),
+      statCard("Total KM", x.totalKm.toFixed(1), "Mileage"),
+      statCard("Apps Total", money(x.totalApps), "Free Now + Uber + Bolt + other"),
+      statCard("Revenue", money(x.totalRevenue), "Before expenses"),
+      statCard("Fuel Allocated", money(x.fuelExpenseAllocated), $("sfFuelSplitMode").value),
+      statCard("Expenses", money(x.totalExpenses), "Fuel + cleaning + parking + other"),
+      statCard("Net", money(x.netRevenue), "Revenue - expenses"),
     ].join("");
   } catch {
-    preview.innerHTML = statCardHTML("Live calculation", "—", "Fill the form to preview");
+    $("shiftPreview").innerHTML = statCard("Preview", "—", "Fill shift data");
   }
 }
 
-/**
- * ------------------------------------------------------------
- * 10) DASHBOARD / REPORTS
- * ------------------------------------------------------------
- */
-function statCardHTML(label, value, sub = "") {
-  return `
-    <div class="stat-card">
-      <div class="stat-label">${safeText(label)}</div>
-      <div class="stat-value">${safeText(value)}</div>
-      <div class="stat-sub">${safeText(sub)}</div>
-    </div>
-  `;
+/* =========================
+   DASHBOARD / REPORTS
+========================= */
+function shiftDate(shift) {
+  return shift.dateKey ? new Date(`${shift.dateKey}T12:00:00`) : null;
 }
 
-function getDateRange(type) {
+function rangeBounds(type) {
   const now = new Date();
   const start = new Date(now);
   const end = new Date(now);
@@ -717,11 +660,9 @@ function getDateRange(type) {
   }
 
   if (type === "week") {
-    const day = start.getDay();
-    const diffToMonday = (day + 6) % 7;
-    start.setDate(start.getDate() - diffToMonday);
+    const day = (start.getDay() + 6) % 7;
+    start.setDate(start.getDate() - day);
     start.setHours(0, 0, 0, 0);
-
     end.setTime(start.getTime());
     end.setDate(start.getDate() + 6);
     end.setHours(23, 59, 59, 999);
@@ -731,7 +672,6 @@ function getDateRange(type) {
   if (type === "month") {
     start.setDate(1);
     start.setHours(0, 0, 0, 0);
-
     end.setMonth(end.getMonth() + 1, 0);
     end.setHours(23, 59, 59, 999);
     return [start, end];
@@ -740,7 +680,6 @@ function getDateRange(type) {
   if (type === "year") {
     start.setMonth(0, 1);
     start.setHours(0, 0, 0, 0);
-
     end.setMonth(11, 31);
     end.setHours(23, 59, 59, 999);
     return [start, end];
@@ -749,57 +688,37 @@ function getDateRange(type) {
   return [null, null];
 }
 
-function shiftDateObj(shift) {
-  return shift.dateKey ? new Date(`${shift.dateKey}T12:00:00`) : null;
-}
-
-function filterShiftsByRange(shifts, rangeType, fromDate, toDate, driverId = "all") {
-  let result = [...shifts];
+function filterShifts(type, driverId = "all") {
+  let rows = [...state.shifts];
 
   if (driverId !== "all") {
-    result = result.filter((s) => s.driverId === driverId);
+    rows = rows.filter((s) => s.driverId === driverId);
   }
 
-  if (rangeType === "all") {
-    return result;
-  }
+  if (type === "all") return rows;
 
-  if (rangeType === "custom") {
-    const from = fromDate ? new Date(`${fromDate}T00:00:00`) : null;
-    const to = toDate ? new Date(`${toDate}T23:59:59`) : null;
-    return result.filter((shift) => {
-      const d = shiftDateObj(shift);
-      if (!d) return false;
-      if (from && d < from) return false;
-      if (to && d > to) return false;
-      return true;
-    });
-  }
-
-  const [start, end] = getDateRange(rangeType);
-  return result.filter((shift) => {
-    const d = shiftDateObj(shift);
-    return d && d >= start && d <= end;
+  const [a, b] = rangeBounds(type);
+  return rows.filter((s) => {
+    const d = shiftDate(s);
+    return d && d >= a && d <= b;
   });
 }
 
-function summarizeShifts(shifts) {
-  return shifts.reduce(
-    (acc, shift) => {
+function summarize(rows) {
+  return rows.reduce(
+    (acc, s) => {
       acc.shifts += 1;
-      acc.hours += num(shift.workedHours);
-      acc.km += num(shift.totalKm);
-      acc.cash += num(shift.cash);
-      acc.card += num(shift.card);
-      acc.freeNow += num(shift.freeNow);
-      acc.uber += num(shift.uber);
-      acc.bolt += num(shift.bolt);
-      acc.otherApps += num(shift.otherApps);
-      acc.otherIncome += num(shift.otherIncome);
-      acc.apps += num(shift.totalApps);
-      acc.revenue += num(shift.totalRevenue);
-      acc.expenses += num(shift.totalExpenses);
-      acc.net += num(shift.netRevenue);
+      acc.hours += num(s.workedHours);
+      acc.km += num(s.totalKm);
+      acc.cash += num(s.cash);
+      acc.card += num(s.card);
+      acc.apps += num(s.totalApps);
+      acc.revenue += num(s.totalRevenue);
+      acc.expenses += num(s.totalExpenses);
+      acc.net += num(s.netRevenue);
+      acc.freeNow += num(s.freeNow);
+      acc.uber += num(s.uber);
+      acc.bolt += num(s.bolt);
       return acc;
     },
     {
@@ -808,240 +727,154 @@ function summarizeShifts(shifts) {
       km: 0,
       cash: 0,
       card: 0,
-      freeNow: 0,
-      uber: 0,
-      bolt: 0,
-      otherApps: 0,
-      otherIncome: 0,
       apps: 0,
       revenue: 0,
       expenses: 0,
       net: 0,
+      freeNow: 0,
+      uber: 0,
+      bolt: 0,
     }
   );
 }
 
-function breakdownBy(shifts, keyFn) {
-  const map = new Map();
-
-  for (const shift of shifts) {
-    const key = keyFn(shift);
-    const current = map.get(key) || [];
-    current.push(shift);
-    map.set(key, current);
-  }
-
-  return [...map.entries()].map(([key, items]) => ({
-    key,
-    items,
-    summary: summarizeShifts(items),
-  }));
-}
-
 function renderDashboard() {
-  const today = summarizeShifts(filterShiftsByRange(state.shifts, "today"));
-  const week = summarizeShifts(filterShiftsByRange(state.shifts, "week"));
-  const month = summarizeShifts(filterShiftsByRange(state.shifts, "month"));
-  const year = summarizeShifts(filterShiftsByRange(state.shifts, "year"));
+  const today = summarize(filterShifts("today"));
+  const week = summarize(filterShifts("week"));
+  const month = summarize(filterShifts("month"));
+  const year = summarize(filterShifts("year"));
 
   $("dashboardStats").innerHTML = [
-    statCardHTML("Today Revenue", money(today.revenue), `${today.shifts} shifts • ${today.hours.toFixed(1)} h`),
-    statCardHTML("Week Revenue", money(week.revenue), `${week.km.toFixed(1)} km`),
-    statCardHTML("Month Revenue", money(month.revenue), `${month.shifts} shifts`),
-    statCardHTML("Year Revenue", money(year.revenue), `${year.net.toFixed(2)} net`),
-    statCardHTML("Today Net", money(today.net), `Expenses ${money(today.expenses)}`),
-    statCardHTML("Today Cash", money(today.cash), `Card ${money(today.card)}`),
-    statCardHTML("Today Apps", money(today.apps), `Free Now / Uber / Bolt / other`),
-    statCardHTML("Today KM", today.km.toFixed(1), `${today.hours.toFixed(1)} total hours`),
+    statCard("Today Revenue", money(today.revenue), `${today.shifts} shifts`),
+    statCard("Today Net", money(today.net), `Expenses ${money(today.expenses)}`),
+    statCard("Week Revenue", money(week.revenue), `${week.hours.toFixed(1)} h`),
+    statCard("Month Revenue", money(month.revenue), `${month.km.toFixed(1)} km`),
+    statCard("Year Revenue", money(year.revenue), `${year.shifts} shifts`),
+    statCard("Today Cash", money(today.cash), `Card ${money(today.card)}`),
+    statCard("Today Apps", money(today.apps), "All apps"),
+    statCard("Today KM", today.km.toFixed(1), "Mileage"),
   ].join("");
 
   $("todaySources").innerHTML = [
-    statCardHTML("Cash", money(today.cash)),
-    statCardHTML("Card", money(today.card)),
-    statCardHTML("Free Now", money(today.freeNow)),
-    statCardHTML("Uber", money(today.uber)),
-    statCardHTML("Bolt", money(today.bolt)),
-    statCardHTML("Other Apps", money(today.otherApps)),
+    statCard("Cash", money(today.cash)),
+    statCard("Card", money(today.card)),
+    statCard("Free Now", money(today.freeNow)),
+    statCard("Uber", money(today.uber)),
+    statCard("Bolt", money(today.bolt)),
+    statCard("Apps Total", money(today.apps)),
   ].join("");
 
-  const driverGroups = breakdownBy(state.shifts, (s) => s.driverName || "Unknown")
-    .sort((a, b) => b.summary.revenue - a.summary.revenue)
+  const grouped = {};
+  for (const s of state.shifts) {
+    const key = s.driverName || "Unknown";
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(s);
+  }
+
+  const top = Object.entries(grouped)
+    .map(([name, items]) => ({ name, sum: summarize(items) }))
+    .sort((a, b) => b.sum.revenue - a.sum.revenue)
     .slice(0, 6);
 
-  $("topDrivers").innerHTML = driverGroups.length
-    ? driverGroups
-        .map(
-          (row) => `
-            <div class="stack-row">
-              <div>
-                <strong>${safeText(row.key)}</strong>
-                <div class="muted">${row.summary.shifts} shifts • ${row.summary.hours.toFixed(1)} hours</div>
-              </div>
-              <div>
-                <strong>${money(row.summary.revenue)}</strong>
-                <div class="muted">Net ${money(row.summary.net)}</div>
-              </div>
-            </div>
-          `
-        )
-        .join("")
-    : `<div class="stack-row"><div><strong>No shifts yet</strong><div class="muted">Save your first shift</div></div></div>`;
+  $("topDrivers").innerHTML = top.length
+    ? top.map((x) => `
+        <div class="stack-row">
+          <div>
+            <strong>${esc(x.name)}</strong>
+            <div class="muted">${x.sum.shifts} shifts • ${x.sum.hours.toFixed(1)} h</div>
+          </div>
+          <div>
+            <strong>${money(x.sum.revenue)}</strong>
+            <div class="muted">Net ${money(x.sum.net)}</div>
+          </div>
+        </div>
+      `).join("")
+    : `<div class="stack-row"><div><strong>No shifts yet</strong></div></div>`;
 }
 
 $("reportRange").addEventListener("change", renderReports);
-$("reportFrom").addEventListener("change", renderReports);
-$("reportTo").addEventListener("change", renderReports);
 $("reportDriverFilter").addEventListener("change", renderReports);
 
 function renderReports() {
   const range = $("reportRange").value;
-  const from = $("reportFrom").value;
-  const to = $("reportTo").value;
-  const driverFilter =
-    state.profile.role === "driver" ? state.authUser.uid : $("reportDriverFilter").value;
+  const driverId = state.profile.role === "driver"
+    ? state.authUser.uid
+    : $("reportDriverFilter").value;
 
-  const filtered = filterShiftsByRange(state.shifts, range, from, to, driverFilter);
-  const summary = summarizeShifts(filtered);
+  const rows = filterShifts(range, driverId);
+  const sum = summarize(rows);
 
   $("reportStats").innerHTML = [
-    statCardHTML("Shifts", String(summary.shifts), "Total saved shifts"),
-    statCardHTML("Hours", summary.hours.toFixed(2), "Worked hours"),
-    statCardHTML("KM", summary.km.toFixed(1), "Mileage total"),
-    statCardHTML("Revenue", money(summary.revenue), "Gross"),
-    statCardHTML("Expenses", money(summary.expenses), "Allocated expenses"),
-    statCardHTML("Net", money(summary.net), "After expenses"),
-    statCardHTML("Cash", money(summary.cash), "Cash source"),
-    statCardHTML("Card", money(summary.card), "Card source"),
+    statCard("Shifts", String(sum.shifts), "Total"),
+    statCard("Hours", sum.hours.toFixed(2), "Worked"),
+    statCard("KM", sum.km.toFixed(1), "Mileage"),
+    statCard("Revenue", money(sum.revenue), "Gross"),
+    statCard("Expenses", money(sum.expenses), "Allocated"),
+    statCard("Net", money(sum.net), "After expenses"),
+    statCard("Cash", money(sum.cash), "Cash total"),
+    statCard("Card", money(sum.card), "Card total"),
   ].join("");
-
-  const byDriver = breakdownBy(filtered, (s) => s.driverName || "Unknown")
-    .sort((a, b) => b.summary.revenue - a.summary.revenue);
-
-  $("reportBreakdownDrivers").innerHTML = byDriver.length
-    ? byDriver
-        .map(
-          (row) => `
-            <div class="stack-row">
-              <div>
-                <strong>${safeText(row.key)}</strong>
-                <div class="muted">${row.summary.shifts} shifts • ${row.summary.km.toFixed(1)} km</div>
-              </div>
-              <div>
-                <strong>${money(row.summary.revenue)}</strong>
-                <div class="muted">Net ${money(row.summary.net)}</div>
-              </div>
-            </div>
-          `
-        )
-        .join("")
-    : `<div class="stack-row"><div><strong>No data</strong><div class="muted">No shifts in this range</div></div></div>`;
-
-  const byDay = breakdownBy(filtered, (s) => s.dateKey || "Unknown")
-    .sort((a, b) => String(b.key).localeCompare(String(a.key)));
-
-  $("reportBreakdownDays").innerHTML = byDay.length
-    ? byDay
-        .map(
-          (row) => `
-            <div class="stack-row">
-              <div>
-                <strong>${safeText(row.key)}</strong>
-                <div class="muted">${row.summary.shifts} shifts • ${row.summary.hours.toFixed(1)} h</div>
-              </div>
-              <div>
-                <strong>${money(row.summary.revenue)}</strong>
-                <div class="muted">Expenses ${money(row.summary.expenses)}</div>
-              </div>
-            </div>
-          `
-        )
-        .join("")
-    : `<div class="stack-row"><div><strong>No data</strong><div class="muted">No shifts in this range</div></div></div>`;
 }
 
-/**
- * ------------------------------------------------------------
- * 11) SHIFTS TABLE
- * ------------------------------------------------------------
- */
+/* =========================
+   SHIFTS TABLE
+========================= */
 function renderShiftsTable() {
   const tbody = $("shiftsTableBody");
 
   if (!state.shifts.length) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="9" class="muted">No shifts yet.</td>
-      </tr>
-    `;
+    tbody.innerHTML = `<tr><td colspan="7">No shifts yet.</td></tr>`;
     return;
   }
 
-  tbody.innerHTML = state.shifts
-    .map(
-      (shift) => `
-        <tr>
-          <td>${safeText(shift.dateKey || "")}</td>
-          <td>${safeText(shift.driverName || "")}</td>
-          <td>${num(shift.workedHours).toFixed(2)}</td>
-          <td>${num(shift.totalKm).toFixed(1)}</td>
-          <td>${money(shift.cash)}</td>
-          <td>${money(shift.card)}</td>
-          <td>${money(shift.totalApps)}</td>
-          <td>${money(shift.totalExpenses)}</td>
-          <td>${money(shift.netRevenue)}</td>
-        </tr>
-      `
-    )
-    .join("");
+  const rows = [...state.shifts].sort((a, b) => (b.dateKey || "").localeCompare(a.dateKey || ""));
+
+  tbody.innerHTML = rows.map((s) => `
+    <tr>
+      <td>${esc(s.dateKey || "")}</td>
+      <td>${esc(s.driverName || "")}</td>
+      <td>${num(s.workedHours).toFixed(2)}</td>
+      <td>${num(s.totalKm).toFixed(1)}</td>
+      <td>${money(s.totalRevenue)}</td>
+      <td>${money(s.totalExpenses)}</td>
+      <td>${money(s.netRevenue)}</td>
+    </tr>
+  `).join("");
 }
 
-/**
- * ------------------------------------------------------------
- * 12) PROFILES
- * ------------------------------------------------------------
- */
+/* =========================
+   PROFILES
+========================= */
 function renderProfiles() {
-  const users = state.profile.role === "driver" ? [state.profile] : state.users;
-  const drivers = users.filter((u) => u.role === "driver").length;
-  const managers = users.filter((u) => u.role === "manager").length;
-  const admins = users.filter((u) => u.role === "admin").length;
+  const rows = state.profile.role === "driver" ? [state.profile] : state.users;
+  const drivers = rows.filter((u) => u.role === "driver").length;
+  const managers = rows.filter((u) => u.role === "manager").length;
 
   $("profilesStats").innerHTML = [
-    statCardHTML("Visible Profiles", String(users.length), "Accounts in this scope"),
-    statCardHTML("Drivers", String(drivers), "Driver users"),
-    statCardHTML("Managers", String(managers), "Manager users"),
-    statCardHTML("Admins", String(admins), "Admin users"),
+    statCard("Profiles", String(rows.length), "Visible"),
+    statCard("Drivers", String(drivers), "Driver accounts"),
+    statCard("Managers", String(managers), "Manager accounts"),
   ].join("");
 
-  $("profilesList").innerHTML = users.length
-    ? users
-        .map(
-          (user) => `
-            <div class="card profile-card">
-              <div class="profile-card-top">
-                <div class="avatar">${safeText(getInitials(user.fullName))}</div>
-                <div>
-                  <div class="profile-name">${safeText(user.fullName || "User")}</div>
-                  <div class="profile-role">${safeText(user.role || "driver")}</div>
-                </div>
-              </div>
-
-              <div class="profile-meta">Email: ${safeText(user.email || "-")}</div>
-              <div class="profile-meta">Phone: ${safeText(user.phone || "-")}</div>
-              <div class="profile-meta">Status: ${user.active === false ? "inactive" : "active"}</div>
-              <div class="profile-meta">Manager ID: ${safeText(user.managerId || "-")}</div>
-            </div>
-          `
-        )
-        .join("")
-    : `<div class="card">No profiles available.</div>`;
+  $("profilesList").innerHTML = rows.map((u) => `
+    <div class="card">
+      <div class="profile-box">
+        <div class="avatar">${esc(initials(u.fullName))}</div>
+        <div>
+          <div class="profile-name">${esc(u.fullName || "User")}</div>
+          <div class="profile-role">${esc(u.role || "driver")}</div>
+        </div>
+      </div>
+      <p class="muted">Email: ${esc(u.email || "-")}</p>
+      <p class="muted">Phone: ${esc(u.phone || "-")}</p>
+      <p class="muted">Status: ${u.active === false ? "inactive" : "active"}</p>
+    </div>
+  `).join("");
 }
 
-/**
- * ------------------------------------------------------------
- * 13) RENDER ALL
- * ------------------------------------------------------------
- */
+/* =========================
+   RENDER ALL
+========================= */
 function renderAll() {
   renderDashboard();
   renderShiftsTable();
