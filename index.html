@@ -13,13 +13,13 @@
     <div class="auth-card">
       <div class="badge">Cloud</div>
       <h1>TAXI FLEET CLOUD MANAGER</h1>
-      <p class="muted">Direct staff login • Day mode default • Night optional</p>
+      <p class="muted">Day mode default • Night mode optional</p>
 
       <div class="login-accounts">
-        <div class="login-account">
+        <div class="login-account manager">
           <strong>MUDASSAR</strong>
           <span>Manager + Driver</span>
-          <small>PIN 1990</small>
+          <small>No PIN required</small>
         </div>
         <div class="login-account">
           <strong>SAQLAIN</strong>
@@ -43,19 +43,23 @@
           </select>
         </label>
 
-        <label>
+        <label id="pinWrap">
           <span>PIN</span>
-          <input id="loginPin" type="password" inputmode="numeric" placeholder="Enter PIN" required />
+          <input
+            id="loginPin"
+            type="password"
+            inputmode="numeric"
+            autocomplete="off"
+            placeholder="Enter PIN"
+          />
         </label>
 
-        <button class="primary-btn full" type="submit">Sign in</button>
-      </form>
+        <div id="loginHint" class="auth-note">
+          Manager quick access is enabled for Mudassar.
+        </div>
 
-      <div class="auth-note">
-        <p>
-          Firebase Auth users must already exist in your Firebase project.
-        </p>
-      </div>
+        <button id="loginBtn" class="primary-btn full" type="submit">Sign in as manager</button>
+      </form>
     </div>
   </section>
 
@@ -71,7 +75,7 @@
         <div class="avatar" id="sidebarAvatar">U</div>
         <div>
           <div id="sidebarName" class="profile-name">User</div>
-          <div id="sidebarRole" class="profile-role">role</div>
+          <div id="sidebarRole" class="profile-role">Role</div>
         </div>
       </div>
 
@@ -93,7 +97,7 @@
       <header class="topbar">
         <div>
           <h1 id="pageTitle">Dashboard</h1>
-          <p id="pageSubtitle" class="muted">Realtime totals and shift control</p>
+          <p id="pageSubtitle" class="muted">Realtime totals and overview</p>
         </div>
         <div id="topbarDate" class="date-pill"></div>
       </header>
@@ -117,7 +121,14 @@
       <section id="shiftView" class="view hidden">
         <div class="two-col">
           <form id="shiftForm" class="card form-card">
-            <h3>New Shift</h3>
+            <div class="section-row">
+              <div>
+                <h3>New Shift</h3>
+                <p class="muted form-sub">
+                  Manager can fill and save all details on behalf of any driver.
+                </p>
+              </div>
+            </div>
 
             <div class="grid-3">
               <label>
