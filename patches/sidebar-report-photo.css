@@ -1,0 +1,53 @@
+/* Patch: sidebar profile photo + report driver photo card */
+#sidebarAvatar.sidebar-photo {
+  background: transparent;
+  padding: 0;
+  overflow: hidden;
+}
+
+#sidebarAvatar.sidebar-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+  display: block;
+}
+
+.report-driver-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.report-driver-card .report-driver-photo {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  display: block;
+}
+
+.report-driver-card .report-driver-fallback {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 24px;
+  color: #fff;
+}
+
+.report-driver-card .report-driver-title {
+  font-weight: 800;
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+
+.report-driver-card .report-driver-sub {
+  color: var(--muted);
+  font-size: 13px;
+}
