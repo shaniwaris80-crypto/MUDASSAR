@@ -1,26 +1,36 @@
-
 <!doctype html>
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+  />
   <title>Taxi Fleet Cloud Manager Pro</title>
-  <meta name="description" content="Gestión profesional de flota taxi con conductores, coches, ingresos, combustible, reportes, gráficos y PDF." />
+  <meta
+    name="description"
+    content="Gestión profesional de flota taxi con conductores, coches, ingresos, gastos, combustible, reportes, gráficos y PDF."
+  />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body data-theme="light">
   <div id="toast" class="toast hidden" aria-live="polite"></div>
 
+  <!-- AUTH -->
   <section id="authView" class="auth-shell">
     <div class="auth-card">
       <div class="auth-top">
         <div class="badge">Cloud Pro</div>
-        <button id="themeToggleAuthBtn" class="ghost-btn" type="button">Night mode</button>
+        <button id="themeToggleAuthBtn" class="ghost-btn" type="button" aria-label="Cambiar tema">
+          Night mode
+        </button>
       </div>
 
       <div class="auth-brand">
         <h1>TAXI FLEET CLOUD MANAGER</h1>
-        <p class="muted">Acceso seguro · Drivers · Cars · Ingresos · Fuel · Reportes · PDF</p>
+        <p class="muted">
+          Gestión profesional de conductores, coches, ingresos, combustible, reportes y PDF
+        </p>
       </div>
 
       <div class="login-cards">
@@ -28,10 +38,12 @@
           <div class="login-card-title">MUDASSAR</div>
           <div class="login-card-sub">Manager / Driver</div>
         </div>
+
         <div class="login-card">
           <div class="login-card-title">SAQLAIN</div>
           <div class="login-card-sub">Driver</div>
         </div>
+
         <div class="login-card">
           <div class="login-card-title">SHUJAAT</div>
           <div class="login-card-sub">Driver</div>
@@ -50,17 +62,30 @@
 
         <label id="pinWrap">
           <span>PIN</span>
-          <input id="loginPin" type="password" inputmode="numeric" autocomplete="off" placeholder="Introduce tu PIN" required />
+          <input
+            id="loginPin"
+            type="password"
+            inputmode="numeric"
+            autocomplete="off"
+            placeholder="Introduce tu PIN"
+            required
+          />
         </label>
 
-        <div id="loginHint" class="auth-note muted">Introduce tus credenciales para continuar.</div>
+        <div id="loginHint" class="auth-note muted">
+          Introduce tus credenciales para continuar.
+        </div>
 
-        <button id="loginBtn" class="primary-btn full" type="submit">Entrar</button>
+        <button id="loginBtn" class="primary-btn full" type="submit">
+          Entrar
+        </button>
       </form>
     </div>
   </section>
 
+  <!-- APP -->
   <section id="appView" class="app-shell hidden">
+    <!-- SIDEBAR -->
     <aside class="sidebar">
       <div class="sidebar-top">
         <div class="badge">Live</div>
@@ -92,17 +117,22 @@
       </div>
     </aside>
 
+    <!-- MAIN -->
     <main class="main">
       <header class="topbar">
         <div>
           <h1 id="pageTitle">Dashboard</h1>
-          <p id="pageSubtitle" class="muted">Resumen en vivo de ingresos, combustible, gastos y neto</p>
+          <p id="pageSubtitle" class="muted">
+            Resumen en vivo de ingresos, combustible, gastos y neto
+          </p>
         </div>
+
         <div class="topbar-right">
           <div id="topbarDate" class="date-pill"></div>
         </div>
       </header>
 
+      <!-- DASHBOARD -->
       <section id="dashboardView" class="view">
         <div id="dashboardStats" class="stats-grid"></div>
 
@@ -145,30 +175,34 @@
         <div class="dashboard-grid second-grid">
           <div class="card">
             <div class="card-head">
-              <h3>Gráfico de ingresos</h3>
-              <p class="muted">Evolución diaria</p>
+              <h3>Gráfico ingresos</h3>
+              <p class="muted">Evolución temporal</p>
             </div>
-            <canvas id="incomeChart" height="135"></canvas>
+            <canvas id="incomeChart" height="130"></canvas>
           </div>
 
           <div class="card">
             <div class="card-head">
-              <h3>Gráfico de fuel / spending</h3>
+              <h3>Gráfico fuel / spending</h3>
               <p class="muted">Combustible frente a gasto</p>
             </div>
-            <canvas id="spendingChart" height="135"></canvas>
+            <canvas id="spendingChart" height="130"></canvas>
           </div>
         </div>
       </section>
 
+      <!-- SHIFT -->
       <section id="shiftView" class="view hidden">
         <div class="page-head">
           <h3>Nuevo turno</h3>
-          <p class="muted">El manager puede introducir datos en nombre de cualquier conductor</p>
+          <p class="muted">
+            El manager puede introducir todos los datos en nombre de cualquier conductor
+          </p>
         </div>
 
         <div class="shift-layout">
           <form id="shiftForm" class="card shift-form" autocomplete="off">
+            <!-- A. DATOS -->
             <div class="form-section">
               <div class="section-title-wrap">
                 <div class="section-badge">A</div>
@@ -205,10 +239,12 @@
                   <span>Hora inicio</span>
                   <input id="sfStartTime" type="time" required />
                 </label>
+
                 <label>
                   <span>Hora fin</span>
                   <input id="sfEndTime" type="time" required />
                 </label>
+
                 <label>
                   <span>Notas / incidencia</span>
                   <input id="sfNotes" type="text" placeholder="Opcional" />
@@ -216,6 +252,7 @@
               </div>
             </div>
 
+            <!-- B. INGRESOS -->
             <div class="form-section">
               <div class="section-title-wrap">
                 <div class="section-badge income">B</div>
@@ -231,6 +268,7 @@
                     <h4>TAXÍMETRO</h4>
                     <div id="taximetroTotalBadge" class="amount-badge">€0.00</div>
                   </div>
+
                   <div class="grid-2">
                     <label>
                       <span>Efectivo</span>
@@ -248,6 +286,7 @@
                     <h4>CABIFY</h4>
                     <div id="cabifyTotalBadge" class="amount-badge">€0.00</div>
                   </div>
+
                   <div class="grid-2">
                     <label>
                       <span>Efectivo</span>
@@ -265,6 +304,7 @@
                     <h4>FREE NOW</h4>
                     <div id="freenowTotalBadge" class="amount-badge">€0.00</div>
                   </div>
+
                   <div class="grid-2">
                     <label>
                       <span>Efectivo</span>
@@ -282,6 +322,7 @@
                     <h4>UBER</h4>
                     <div id="uberTotalBadge" class="amount-badge">€0.00</div>
                   </div>
+
                   <div class="grid-1">
                     <label>
                       <span>Pagado por la app</span>
@@ -311,6 +352,7 @@
               </div>
             </div>
 
+            <!-- C. GASTOS -->
             <div class="form-section">
               <div class="section-title-wrap">
                 <div class="section-badge spending">C</div>
@@ -326,6 +368,7 @@
                     <h4>FUEL</h4>
                     <div id="fuelTotalBadge" class="amount-badge fuel">€0.00</div>
                   </div>
+
                   <div class="grid-4">
                     <label>
                       <span>Fuel 1</span>
@@ -351,6 +394,7 @@
                     <h4>GASTOS</h4>
                     <div id="expensesTotalBadge" class="amount-badge spending">€0.00</div>
                   </div>
+
                   <div class="grid-4">
                     <label>
                       <span>Parking</span>
@@ -376,6 +420,7 @@
                     <h4>MANTENIMIENTO</h4>
                     <div id="maintenanceTotalBadge" class="amount-badge maintenance">€0.00</div>
                   </div>
+
                   <div class="grid-3">
                     <label>
                       <span>Lavado</span>
@@ -425,6 +470,7 @@
               </div>
             </div>
 
+            <!-- D. FINAL -->
             <div class="form-section final-result-section">
               <div class="section-title-wrap">
                 <div class="section-badge final">D</div>
@@ -463,17 +509,20 @@
           <div class="card sticky-card">
             <div class="card-head">
               <h3>Resumen en vivo</h3>
-              <p class="muted">Vista profesional instantánea</p>
+              <p class="muted">Vista instantánea profesional</p>
             </div>
             <div id="shiftPreview" class="stats-grid compact"></div>
           </div>
         </div>
       </section>
 
+      <!-- HISTORY -->
       <section id="historyView" class="view hidden">
         <div class="page-head">
           <h3>Historial de turnos</h3>
-          <p class="muted">Buscar por fecha, driver o coche · 30 por página</p>
+          <p class="muted">
+            Buscar por fecha, driver o coche · 30 por página
+          </p>
         </div>
 
         <div class="card">
@@ -482,20 +531,24 @@
               <span>Buscar</span>
               <input id="historySearch" type="text" placeholder="Driver, coche, nota..." />
             </label>
+
             <label>
               <span>Fecha</span>
               <input id="historyDateFilter" type="date" />
             </label>
+
             <label>
               <span>Driver</span>
               <select id="historyDriverFilter">
                 <option value="all">All</option>
               </select>
             </label>
+
             <label>
               <span>Coche</span>
               <input id="historyCarFilter" type="text" placeholder="Matrícula o alias" />
             </label>
+
             <div class="history-filter-actions">
               <button id="clearHistoryFiltersBtn" class="secondary-btn" type="button">Limpiar filtros</button>
             </div>
@@ -533,10 +586,13 @@
         </div>
       </section>
 
+      <!-- REPORTS -->
       <section id="reportsView" class="view hidden">
         <div class="page-head">
           <h3>Reportes</h3>
-          <p class="muted">Diario, semanal, mensual y anual con gráficos y PDF</p>
+          <p class="muted">
+            Diario, semanal, mensual y anual con gráficos y PDF
+          </p>
         </div>
 
         <div class="card">
@@ -576,7 +632,7 @@
           <div class="card">
             <div class="card-head">
               <h3>Picos</h3>
-              <p class="muted">Días y horas fuertes</p>
+              <p class="muted">Días y horas más fuertes</p>
             </div>
             <div id="reportPeakList" class="stack-list"></div>
           </div>
@@ -614,7 +670,7 @@
               <h3>Gráfico del reporte</h3>
               <p class="muted">Ingresos, fuel y neto</p>
             </div>
-            <canvas id="reportChart" height="135"></canvas>
+            <canvas id="reportChart" height="130"></canvas>
           </div>
 
           <div class="card">
@@ -622,21 +678,24 @@
               <h3>Distribución por app</h3>
               <p class="muted">Taxímetro, Cabify, Free Now, Uber</p>
             </div>
-            <canvas id="appBreakdownChart" height="135"></canvas>
+            <canvas id="appBreakdownChart" height="130"></canvas>
           </div>
         </div>
       </section>
 
+      <!-- DRIVERS -->
       <section id="driversView" class="view hidden">
         <div class="page-head">
           <h3>Drivers</h3>
-          <p class="muted">Crear nuevos, ver existentes, cambiar fotos y datos</p>
+          <p class="muted">
+            Crear nuevos, ver existentes, cambiar fotos y datos
+          </p>
         </div>
 
         <div class="card driver-create-card">
           <div class="card-head">
             <h3>Añadir nuevo driver</h3>
-            <p class="muted">Solo manager</p>
+            <p class="muted">Manager only</p>
           </div>
 
           <form id="newDriverForm" class="grid-4" autocomplete="off">
@@ -685,16 +744,19 @@
         <div id="driversGrid" class="cards-grid"></div>
       </section>
 
+      <!-- CARS -->
       <section id="carsView" class="view hidden">
         <div class="page-head">
           <h3>Cars</h3>
-          <p class="muted">Ver existentes, añadir nuevos y editar datos</p>
+          <p class="muted">
+            Ver coches existentes, añadir nuevos y editar datos
+          </p>
         </div>
 
         <div class="card car-create-card">
           <div class="card-head">
             <h3>Añadir coche</h3>
-            <p class="muted">Solo manager</p>
+            <p class="muted">Manager only</p>
           </div>
 
           <form id="newCarForm" class="grid-4" autocomplete="off">
@@ -759,6 +821,7 @@
     </main>
   </section>
 
+  <!-- DRIVER PHOTO MODAL -->
   <div id="photoModal" class="modal hidden" aria-hidden="true">
     <div class="modal-backdrop" data-close-photo-modal="true"></div>
     <div class="modal-card">
@@ -767,7 +830,9 @@
           <h3 id="photoModalTitle">Foto del driver</h3>
           <p class="muted">Sube imagen o haz foto con el móvil</p>
         </div>
-        <button id="closePhotoModalBtn" class="ghost-btn" type="button" aria-label="Cerrar">✕</button>
+        <button id="closePhotoModalBtn" class="ghost-btn" type="button" aria-label="Cerrar">
+          ✕
+        </button>
       </div>
 
       <div class="photo-preview-wrap">
@@ -783,7 +848,12 @@
 
         <label class="upload-box">
           <span>Tomar foto</span>
-          <input id="driverPhotoCameraInput" type="file" accept="image/*" capture="environment" />
+          <input
+            id="driverPhotoCameraInput"
+            type="file"
+            accept="image/*"
+            capture="environment"
+          />
         </label>
       </div>
 
@@ -794,8 +864,6 @@
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script type="module" src="app.js"></script>
 </body>
 </html>
