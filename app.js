@@ -29,7 +29,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-storage.js";
 
 /* =========================================================
-   FIREBASE CONFIG
+   FIREBASE
 ========================================================= */
 const firebaseConfig = {
   apiKey: "AIzaSyCU5HPe6BgavLPG91g8P1_mPqtqaoXo8jo",
@@ -49,11 +49,8 @@ const storage = getStorage(app);
 await setPersistence(auth, browserLocalPersistence);
 
 /* =========================================================
-   FIXED LOGIN USERS
-   Login estable con Email/Password real en Firebase Auth.
-   Los nuevos drivers creados desde la app son operativos.
-   Si luego quieres que tengan login real, habrá que crear
-   también su usuario en Firebase Authentication.
+   LOGIN USERS
+   Estos 3 usuarios deben existir en Firebase Auth.
 ========================================================= */
 const FIXED_STAFF = {
   mudassar: {
@@ -125,13 +122,11 @@ const state = {
   pendingPhotoFile: null,
   pendingPhotoPreviewUrl: "",
 
+  chartLibPromise: null,
   incomeChart: null,
   spendingChart: null,
   reportChart: null,
   appBreakdownChart: null,
-
-  chartLibPromise: null,
-  chartRenderQueued: false,
 };
 
 /* =========================================================
@@ -195,34 +190,6 @@ function dateTimeLabel() {
   }).format(new Date());
 }
 
-function showToast(message) {
-  const toast = $("toast");
-  if (!toast) return;
-  toast.textContent = message;
-  show(toast);
-  clearTimeout(showToast._timer);
-  showToast._timer = setTimeout(() => hide(toast), 2600);
-}
-
-function cleanupSubs() {
-  if (typeof state.unsubProfiles === "function") state.unsubProfiles();
-  if (typeof state.unsubCars === "function") state.unsubCars();
-  if (typeof state.unsubShifts === "function") state.unsubShifts();
-  state.unsubProfiles = null;
-  state.unsubCars = null;
-  state.unsubShifts = null;
-}
-
-function statCard(label, value, sub = "") {
-  return `
-    <div class="stat-card">
-      <div class="stat-label">${escapeHtml(label)}</div>
-      <div class="stat-value">${escapeHtml(value)}</div>
-      <div class="stat-sub">${escapeHtml(sub)}</div>
-    </div>
-  `;
-}
-
 function slugify(value) {
   return String(value || "")
     .normalize("NFD")
@@ -241,27 +208,33 @@ function truncateText(text, max = 40) {
   return str.length <= max ? str : `${str.slice(0, max - 1)}…`;
 }
 
-function hexToRgb(hex) {
-  const clean = String(hex || "").replace("#", "");
-  const full =
-    clean.length === 3
-      ? clean
-          .split("")
-          .map((c) => c + c)
-          .join("")
-      : clean.padEnd(6, "0");
-
-  const parsed = parseInt(full, 16);
-  return {
-    r: (parsed >> 16) & 255,
-    g: (parsed >> 8) & 255,
-    b: parsed & 255,
-  };
+function showToast(message) {
+  const toast = $("toast");
+  if (!toast) return;
+  toast.textContent = message;
+  show(toast);
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => hide(toast), 2600);
 }
 
-function blendColor(hex, alpha = 0.14) {
-  const { r, g, b } = hexToRgb(hex);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+function statCard(label, value, sub = "") {
+  return `
+    <div class="stat-card">
+      <div class="stat-label">${escapeHtml(label)}</div>
+      <div class="stat-value">${escapeHtml(value)}</div>
+      <div class="stat-sub">${escapeHtml(sub)}</div>
+    </div>
+  `;
+}
+
+function cleanupSubs() {
+  if (typeof state.unsubProfiles === "function") state.unsubProfiles();
+  if (typeof state.unsubCars === "function") state.unsubCars();
+  if (typeof state.unsubShifts === "function") state.unsubShifts();
+
+  state.unsubProfiles = null;
+  state.unsubCars = null;
+  state.unsubShifts = null;
 }
 
 /* =========================================================
@@ -278,8 +251,7 @@ function applyTheme(theme) {
 }
 
 (function initTheme() {
-  const saved = localStorage.getItem(themeKey) || "light";
-  applyTheme(saved);
+  applyTheme(localStorage.getItem(themeKey) || "light");
 })();
 
 $("themeToggleBtn")?.addEventListener("click", () => {
@@ -295,14 +267,26 @@ $("themeToggleAuthBtn")?.addEventListener("click", () => {
 /* =========================================================
    LOGIN
 ========================================================= */
-function updateLoginMode() {
-  $("loginHint").textContent = "Introduce tus credenciales para continuar.";
-  $("loginBtn").textContent = "Entrar";
-  $("loginPin").value = "";
+function updateLoginHint() {
+  const selected = FIXED_STAFF[$("loginStaff").value];
+  $("loginHint").textContent = selected
+    ? `${selected.fullName} iniciará sesión y verá ${selected.role === "manager" ? "todo" : "solo su información"}.`
+    : "Introduce tus credenciales.";
 }
 
-$("loginStaff")?.addEventListener("change", updateLoginMode);
-updateLoginMode();
+document.querySelectorAll("[data-login-preset]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const key = btn.getAttribute("data-login-preset");
+    if (FIXED_STAFF[key]) {
+      $("loginStaff").value = key;
+      updateLoginHint();
+      $("loginPin").focus();
+    }
+  });
+});
+
+$("loginStaff")?.addEventListener("change", updateLoginHint);
+updateLoginHint();
 
 $("loginForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -322,12 +306,16 @@ $("loginForm")?.addEventListener("submit", async (e) => {
   }
 
   try {
+    $("loginBtn").disabled = true;
+    $("loginBtn").textContent = "Entrando...";
     await signInWithEmailAndPassword(auth, selected.email, selected.password);
     $("loginPin").value = "";
-    showToast("Sesión iniciada.");
   } catch (error) {
     console.error(error);
     showToast("No se pudo iniciar sesión. Revisa Firebase Auth.");
+  } finally {
+    $("loginBtn").disabled = false;
+    $("loginBtn").textContent = "Entrar";
   }
 });
 
@@ -354,11 +342,12 @@ onAuthStateChanged(auth, async (user) => {
     state.currentUser = null;
     state.driverProfiles = {};
     state.cars = {};
-    state.shifts = {};
+    state.shifts = [];
     state.historyPage = 1;
+    destroyCharts();
+
     show($("authView"));
     hide($("appView"));
-    destroyCharts();
     return;
   }
 
@@ -373,8 +362,12 @@ onAuthStateChanged(auth, async (user) => {
   state.currentUser = fixedUser;
 
   try {
-    await ensureInitialFixedProfiles();
-    await ensureInitialManagerCarSeed();
+    await ensureFixedProfiles();
+    await ensureSeedCarsForManager();
+
+    hide($("authView"));
+    show($("appView"));
+
     bootApp();
   } catch (error) {
     console.error(error);
@@ -382,42 +375,46 @@ onAuthStateChanged(auth, async (user) => {
   }
 });
 
-async function ensureInitialFixedProfiles() {
+async function ensureFixedProfiles() {
   const keys = Object.keys(FIXED_STAFF);
+
   for (const staffKey of keys) {
     const base = FIXED_STAFF[staffKey];
     const ref = doc(db, "driverProfiles", staffKey);
     const snap = await getDoc(ref);
 
-    const payload = {
-      staffKey: base.staffKey,
-      fullName: base.fullName,
-      role: base.role,
-      email: base.email,
-      managerKey: base.managerKey,
-      managerName: base.managerName,
-      colorClass: base.colorClass,
-      colorHex: base.colorHex,
-      phone: snap.exists() ? snap.data().phone || "" : "",
-      defaultCarId: snap.exists() ? snap.data().defaultCarId || "" : "",
-      photoUrl: snap.exists() ? snap.data().photoUrl || "" : "",
-      photoPath: snap.exists() ? snap.data().photoPath || "" : "",
-      active: snap.exists() ? snap.data().active !== false : true,
-      systemUser: true,
-      operationalOnly: false,
-      requestedLoginEmail: base.email,
-      updatedAt: serverTimestamp(),
-      createdAt: snap.exists() ? snap.data().createdAt || serverTimestamp() : serverTimestamp(),
-    };
+    const current = snap.exists() ? snap.data() : {};
 
-    await setDoc(ref, payload, { merge: true });
+    await setDoc(
+      ref,
+      {
+        staffKey: base.staffKey,
+        fullName: current.fullName || base.fullName,
+        role: base.role,
+        email: base.email,
+        managerKey: base.managerKey,
+        managerName: base.managerName,
+        colorClass: current.colorClass || base.colorClass,
+        colorHex: current.colorHex || base.colorHex,
+        phone: current.phone || "",
+        defaultCarId: current.defaultCarId || "",
+        photoUrl: current.photoUrl || "",
+        photoPath: current.photoPath || "",
+        active: current.active !== false,
+        systemUser: true,
+        operationalOnly: false,
+        updatedAt: serverTimestamp(),
+        createdAt: current.createdAt || serverTimestamp(),
+      },
+      { merge: true }
+    );
   }
 }
 
-async function ensureInitialManagerCarSeed() {
+async function ensureSeedCarsForManager() {
   if (state.currentUser?.role !== "manager") return;
 
-  const seedCars = [
+  const seeds = [
     {
       id: "car-1",
       plate: "0001-AAA",
@@ -444,7 +441,7 @@ async function ensureInitialManagerCarSeed() {
     },
   ];
 
-  for (const car of seedCars) {
+  for (const car of seeds) {
     const ref = doc(db, "cars", car.id);
     const snap = await getDoc(ref);
     if (!snap.exists()) {
@@ -458,15 +455,14 @@ async function ensureInitialManagerCarSeed() {
 }
 
 /* =========================================================
-   BOOT APP
+   BOOT
 ========================================================= */
-function bootApp() {
-  hide($("authView"));
-  show($("appView"));
+let appBooted = false;
 
+function bootApp() {
   setHeaderInfo();
   attachNav();
-  bindGeneralEvents();
+  bindGlobalEvents();
 
   subscribeDriverProfiles();
   subscribeCars();
@@ -475,14 +471,19 @@ function bootApp() {
   setShiftDefaults();
   renderShiftPreview();
   openView("dashboardView");
+
+  appBooted = true;
 }
 
 function setHeaderInfo() {
   const profile = getProfileByKey(state.currentUser.staffKey);
+  if (!profile) return;
+
   $("sidebarName").textContent = profile.fullName;
   $("sidebarRole").textContent =
     profile.role === "manager" ? "Manager / Driver" : "Driver";
-  $("sidebarVehicle").textContent = getDefaultCarLabelForDriver(profile.staffKey) || "Sin coche por defecto";
+  $("sidebarVehicle").textContent =
+    getDefaultCarLabelForDriver(profile.staffKey) || "Sin coche por defecto";
   $("sidebarAvatar").textContent = initials(profile.fullName);
   $("topbarDate").textContent = dateTimeLabel();
 }
@@ -503,10 +504,10 @@ function openView(viewId) {
 
   const titleMap = {
     dashboardView: ["Dashboard", "Resumen en vivo de ingresos, combustible, gastos y neto"],
-    shiftView: ["Nuevo turno", "Manager puede guardar un turno en nombre de cualquier conductor"],
+    shiftView: ["Nuevo turno", "Manager puede guardar por cualquier conductor. Un driver guarda solo lo suyo."],
     historyView: ["Historial", "Buscar por fecha, driver o coche · 30 por página"],
     reportsView: ["Reportes", "Diario, semanal, mensual y anual con gráficos y PDF"],
-    driversView: ["Drivers", "Crear, editar, activar, cambiar foto y color"],
+    driversView: ["Perfil / Drivers", "Cada conductor ve solo su perfil. El manager gestiona todos."],
     carsView: ["Cars", "Ver existentes, añadir nuevos y editar datos"],
   };
 
@@ -515,126 +516,9 @@ function openView(viewId) {
 }
 
 /* =========================================================
-   GENERAL EVENTS
-========================================================= */
-let generalEventsBound = false;
-
-function bindGeneralEvents() {
-  if (generalEventsBound) return;
-  generalEventsBound = true;
-
-  /* shift form live calc */
-  const ids = [
-    "sfDate",
-    "sfDriverKey",
-    "sfCarId",
-    "sfKm",
-    "sfStartTime",
-    "sfEndTime",
-    "sfNotes",
-    "sfTaximetroCash",
-    "sfTaximetroCard",
-    "sfCabifyCash",
-    "sfCabifyApp",
-    "sfFreeNowCash",
-    "sfFreeNowApp",
-    "sfUberApp",
-    "sfFuel1",
-    "sfFuel2",
-    "sfFuel3",
-    "sfFuelOther",
-    "sfParking",
-    "sfTolls",
-    "sfCleaning",
-    "sfOtherExpenses",
-    "sfWash",
-    "sfOil",
-    "sfTyres",
-    "sfWorkshop",
-    "sfItv",
-    "sfOtherMaintenance",
-  ];
-
-  ids.forEach((id) => {
-    $(id)?.addEventListener("input", renderShiftPreview);
-    $(id)?.addEventListener("change", renderShiftPreview);
-  });
-
-  $("sfDriverKey")?.addEventListener("change", () => {
-    applyDriverDefaultCar();
-    renderShiftPreview();
-  });
-
-  $("resetShiftBtn")?.addEventListener("click", () => {
-    $("shiftForm").reset();
-    setShiftDefaults();
-    renderShiftPreview();
-  });
-
-  $("shiftForm")?.addEventListener("submit", handleSaveShift);
-
-  /* history filters */
-  $("historySearch")?.addEventListener("input", resetAndRenderHistory);
-  $("historyDateFilter")?.addEventListener("change", resetAndRenderHistory);
-  $("historyDriverFilter")?.addEventListener("change", resetAndRenderHistory);
-  $("historyCarFilter")?.addEventListener("input", resetAndRenderHistory);
-
-  $("clearHistoryFiltersBtn")?.addEventListener("click", () => {
-    $("historySearch").value = "";
-    $("historyDateFilter").value = "";
-    $("historyDriverFilter").value = "all";
-    $("historyCarFilter").value = "";
-    state.historyPage = 1;
-    renderHistoryTable();
-  });
-
-  $("historyPrevBtn")?.addEventListener("click", () => {
-    state.historyPage = Math.max(1, state.historyPage - 1);
-    renderHistoryTable();
-  });
-
-  $("historyNextBtn")?.addEventListener("click", () => {
-    const totalPages = getHistoryTotalPages();
-    state.historyPage = Math.min(totalPages, state.historyPage + 1);
-    renderHistoryTable();
-  });
-
-  /* reports */
-  $("reportRange")?.addEventListener("change", renderReports);
-  $("reportDriverFilter")?.addEventListener("change", renderReports);
-  $("reportCarFilter")?.addEventListener("input", renderReports);
-  $("exportReportPdfBtn")?.addEventListener("click", exportCurrentReportPdf);
-
-  /* drivers */
-  $("createDriverBtn")?.addEventListener("click", handleCreateDriver);
-
-  /* cars */
-  $("createCarBtn")?.addEventListener("click", handleCreateCar);
-
-  /* photo modal */
-  $("closePhotoModalBtn")?.addEventListener("click", closePhotoModal);
-  document.querySelectorAll("[data-close-photo-modal]").forEach((el) => {
-    el.addEventListener("click", closePhotoModal);
-  });
-
-  $("driverPhotoUploadInput")?.addEventListener("change", (e) => {
-    handleSelectedPhotoFile(e.target.files?.[0] || null);
-  });
-
-  $("driverPhotoCameraInput")?.addEventListener("change", (e) => {
-    handleSelectedPhotoFile(e.target.files?.[0] || null);
-  });
-
-  $("saveDriverPhotoBtn")?.addEventListener("click", saveDriverPhoto);
-  $("removeDriverPhotoBtn")?.addEventListener("click", removeDriverPhoto);
-}
-
-/* =========================================================
    SUBSCRIPTIONS
 ========================================================= */
 function subscribeDriverProfiles() {
-  if (!state.currentUser) return;
-
   if (state.currentUser.role === "manager") {
     state.unsubProfiles = onSnapshot(collection(db, "driverProfiles"), (snap) => {
       const next = {};
@@ -642,25 +526,22 @@ function subscribeDriverProfiles() {
         next[d.id] = d.data();
       });
       state.driverProfiles = next;
-      afterProfilesAndCarsChange();
+      afterProfilesOrCarsChange();
     });
     return;
   }
 
-  const profileRef = doc(db, "driverProfiles", state.currentUser.staffKey);
-  state.unsubProfiles = onSnapshot(profileRef, (snap) => {
+  const ref = doc(db, "driverProfiles", state.currentUser.staffKey);
+  state.unsubProfiles = onSnapshot(ref, (snap) => {
     const next = {};
     if (snap.exists()) next[snap.id] = snap.data();
 
-    // keep fixed users locally for manager names/colors and filters
-    Object.keys(FIXED_STAFF).forEach((key) => {
-      if (!next[key] && key === state.currentUser.staffKey) {
-        next[key] = buildFallbackProfileFromFixed(FIXED_STAFF[key]);
-      }
-    });
+    if (!next[state.currentUser.staffKey]) {
+      next[state.currentUser.staffKey] = buildFixedFallback(state.currentUser.staffKey);
+    }
 
     state.driverProfiles = next;
-    afterProfilesAndCarsChange();
+    afterProfilesOrCarsChange();
   });
 }
 
@@ -671,13 +552,11 @@ function subscribeCars() {
       next[d.id] = d.data();
     });
     state.cars = next;
-    afterProfilesAndCarsChange();
+    afterProfilesOrCarsChange();
   });
 }
 
 function subscribeShifts() {
-  if (!state.currentUser) return;
-
   const shiftsRef = collection(db, "shifts");
 
   if (state.currentUser.role === "manager") {
@@ -710,18 +589,21 @@ function sortShiftsNewestFirst(a, b) {
 }
 
 /* =========================================================
-   PROFILE / CAR HELPERS
+   DATA HELPERS
 ========================================================= */
-function buildFallbackProfileFromFixed(base) {
+function buildFixedFallback(staffKey) {
+  const fixed = FIXED_STAFF[staffKey];
+  if (!fixed) return null;
+
   return {
-    staffKey: base.staffKey,
-    fullName: base.fullName,
-    role: base.role,
-    email: base.email,
-    managerKey: base.managerKey,
-    managerName: base.managerName,
-    colorClass: base.colorClass,
-    colorHex: base.colorHex,
+    staffKey: fixed.staffKey,
+    fullName: fixed.fullName,
+    role: fixed.role,
+    email: fixed.email,
+    managerKey: fixed.managerKey,
+    managerName: fixed.managerName,
+    colorClass: fixed.colorClass,
+    colorHex: fixed.colorHex,
     phone: "",
     defaultCarId: "",
     photoUrl: "",
@@ -732,39 +614,34 @@ function buildFallbackProfileFromFixed(base) {
   };
 }
 
-function getAllProfiles() {
-  const fixedFallbacks = Object.keys(FIXED_STAFF).reduce((acc, key) => {
-    if (!state.driverProfiles[key]) acc[key] = buildFallbackProfileFromFixed(FIXED_STAFF[key]);
-    return acc;
-  }, {});
-
-  return { ...fixedFallbacks, ...state.driverProfiles };
+function getAllProfilesMap() {
+  const fallback = {};
+  Object.keys(FIXED_STAFF).forEach((key) => {
+    if (!state.driverProfiles[key]) {
+      fallback[key] = buildFixedFallback(key);
+    }
+  });
+  return { ...fallback, ...state.driverProfiles };
 }
 
 function getProfileByKey(staffKey) {
-  const all = getAllProfiles();
-  if (all[staffKey]) return all[staffKey];
-
-  if (FIXED_STAFF[staffKey]) {
-    return buildFallbackProfileFromFixed(FIXED_STAFF[staffKey]);
-  }
-
-  return null;
+  const all = getAllProfilesMap();
+  return all[staffKey] || null;
 }
 
 function getVisibleProfiles() {
-  const all = Object.values(getAllProfiles())
+  const all = Object.values(getAllProfilesMap())
     .filter((p) => p.active !== false)
     .sort((a, b) => a.fullName.localeCompare(b.fullName));
 
-  if (state.currentUser?.role === "manager") return all;
+  if (state.currentUser.role === "manager") return all;
   return all.filter((p) => p.staffKey === state.currentUser.staffKey);
 }
 
 function getSelectableDrivers() {
-  return Object.values(getAllProfiles())
+  return Object.values(getAllProfilesMap())
     .filter((p) => p.active !== false)
-    .filter((p) => p.role === "driver" || p.role === "manager")
+    .filter((p) => p.role === "manager" || p.role === "driver")
     .sort((a, b) => a.fullName.localeCompare(b.fullName));
 }
 
@@ -785,10 +662,7 @@ function getCarById(carId) {
 
 function getCarLabel(car) {
   if (!car) return "";
-  const alias = car.alias || "";
-  const plate = car.plate || "";
-  const model = car.model || "";
-  return [alias, plate, model].filter(Boolean).join(" · ");
+  return [car.alias, car.plate, car.model].filter(Boolean).join(" · ");
 }
 
 function getDefaultCarLabelForDriver(staffKey) {
@@ -798,51 +672,42 @@ function getDefaultCarLabelForDriver(staffKey) {
   return car ? getCarLabel(car) : "";
 }
 
-function getDriverDisplayColor(profile) {
-  return profile?.colorHex || "#1d4ed8";
+function getProfileImageHtml(profile, kind = "small") {
+  const url = profile?.photoUrl || "";
+  const cls = kind === "large" ? "profile-photo" : "mini-avatar";
+
+  if (url) {
+    return `<img src="${escapeHtml(url)}" alt="${escapeHtml(profile.fullName)}" class="${cls}" />`;
+  }
+
+  return `<div class="${cls} fallback">${escapeHtml(initials(profile?.fullName || "D"))}</div>`;
 }
 
 function getDriverBadgeHtml(profile) {
-  const color = getDriverDisplayColor(profile);
+  const color = profile?.colorHex || "#1d4ed8";
   return `<span class="driver-badge" style="background:${escapeHtml(color)}">${escapeHtml(
     profile.fullName
   )}</span>`;
 }
 
 function getDriverLineHtml(profile) {
-  const color = getDriverDisplayColor(profile);
+  const color = profile?.colorHex || "#1d4ed8";
   return `<div class="driver-line" style="background:${escapeHtml(color)}"></div>`;
 }
 
-function getProfileImageHtml(profile, kind = "small") {
-  const photoUrl = profile?.photoUrl || "";
-  const initialsText = initials(profile?.fullName || "D");
-  const sizeClass = kind === "large" ? "profile-photo" : "mini-avatar";
-
-  if (photoUrl) {
-    return `<img src="${escapeHtml(photoUrl)}" alt="${escapeHtml(
-      profile.fullName
-    )}" class="${sizeClass}" />`;
-  }
-
-  return `<div class="${sizeClass} fallback">${escapeHtml(initialsText)}</div>`;
-}
-
-/* =========================================================
-   AFTER DATA CHANGES
-========================================================= */
-function afterProfilesAndCarsChange() {
+function afterProfilesOrCarsChange() {
   setHeaderInfo();
   renderShiftSelectors();
+  renderNewDriverCarOptions();
+  renderNewCarDriverOptions();
+  renderHistoryDriverFilter();
+  renderReportDriverFilter();
   renderDriversStats();
   renderDriversGrid();
   renderCarsStats();
   renderCarsGrid();
-  renderHistoryDriverFilter();
-  renderReportDriverFilter();
-  renderNewDriverCarOptions();
-  renderNewCarDriverOptions();
-  renderShiftPreview();
+  renderDashboardProfileHero();
+  renderReports();
 }
 
 function afterShiftsChange() {
@@ -852,47 +717,140 @@ function afterShiftsChange() {
 }
 
 /* =========================================================
-   SELECTORS / OPTIONS
+   GLOBAL EVENTS
+========================================================= */
+let globalEventsBound = false;
+
+function bindGlobalEvents() {
+  if (globalEventsBound) return;
+  globalEventsBound = true;
+
+  const calcIds = [
+    "sfDate",
+    "sfDriverKey",
+    "sfCarId",
+    "sfKm",
+    "sfStartTime",
+    "sfEndTime",
+    "sfNotes",
+    "sfTaximetroCash",
+    "sfTaximetroCard",
+    "sfCabifyCash",
+    "sfCabifyApp",
+    "sfFreeNowCash",
+    "sfFreeNowApp",
+    "sfUberApp",
+    "sfFuel1",
+    "sfFuel2",
+    "sfFuel3",
+    "sfFuelOther",
+    "sfParking",
+    "sfTolls",
+    "sfCleaning",
+    "sfOtherExpenses",
+    "sfWash",
+    "sfOil",
+    "sfTyres",
+    "sfWorkshop",
+    "sfItv",
+    "sfOtherMaintenance",
+  ];
+
+  calcIds.forEach((id) => {
+    $(id)?.addEventListener("input", renderShiftPreview);
+    $(id)?.addEventListener("change", renderShiftPreview);
+  });
+
+  $("sfDriverKey")?.addEventListener("change", () => {
+    applyDriverDefaultCar();
+    renderShiftPreview();
+  });
+
+  $("resetShiftBtn")?.addEventListener("click", () => {
+    $("shiftForm").reset();
+    setShiftDefaults();
+    renderShiftPreview();
+  });
+
+  $("shiftForm")?.addEventListener("submit", saveShift);
+
+  $("historySearch")?.addEventListener("input", resetAndRenderHistory);
+  $("historyDateFilter")?.addEventListener("change", resetAndRenderHistory);
+  $("historyDriverFilter")?.addEventListener("change", resetAndRenderHistory);
+  $("historyCarFilter")?.addEventListener("input", resetAndRenderHistory);
+
+  $("clearHistoryFiltersBtn")?.addEventListener("click", () => {
+    $("historySearch").value = "";
+    $("historyDateFilter").value = "";
+    $("historyDriverFilter").value = "all";
+    $("historyCarFilter").value = "";
+    state.historyPage = 1;
+    renderHistoryTable();
+  });
+
+  $("historyPrevBtn")?.addEventListener("click", () => {
+    state.historyPage = Math.max(1, state.historyPage - 1);
+    renderHistoryTable();
+  });
+
+  $("historyNextBtn")?.addEventListener("click", () => {
+    state.historyPage = Math.min(getHistoryTotalPages(), state.historyPage + 1);
+    renderHistoryTable();
+  });
+
+  $("reportRange")?.addEventListener("change", renderReports);
+  $("reportDriverFilter")?.addEventListener("change", renderReports);
+  $("reportCarFilter")?.addEventListener("input", renderReports);
+  $("exportReportPdfBtn")?.addEventListener("click", exportCurrentReportPdf);
+
+  $("createDriverBtn")?.addEventListener("click", createDriver);
+  $("createCarBtn")?.addEventListener("click", createCar);
+
+  $("closePhotoModalBtn")?.addEventListener("click", closePhotoModal);
+  document.querySelectorAll("[data-close-photo-modal]").forEach((el) => {
+    el.addEventListener("click", closePhotoModal);
+  });
+
+  $("driverPhotoUploadInput")?.addEventListener("change", (e) => {
+    handleSelectedPhotoFile(e.target.files?.[0] || null);
+  });
+
+  $("driverPhotoCameraInput")?.addEventListener("change", (e) => {
+    handleSelectedPhotoFile(e.target.files?.[0] || null);
+  });
+
+  $("saveDriverPhotoBtn")?.addEventListener("click", saveDriverPhoto);
+  $("removeDriverPhotoBtn")?.addEventListener("click", removeDriverPhoto);
+}
+
+/* =========================================================
+   OPTIONS / SELECTS
 ========================================================= */
 function renderShiftSelectors() {
-  if (!state.currentUser) return;
+  if (state.currentUser.role === "manager") show($("driverSelectWrap"));
+  else hide($("driverSelectWrap"));
 
-  if (state.currentUser.role === "manager") {
-    show($("driverSelectWrap"));
-  } else {
-    hide($("driverSelectWrap"));
-  }
-
-  const driverOptions = getSelectableDrivers()
-    .map(
-      (profile) =>
-        `<option value="${profile.staffKey}">${escapeHtml(profile.fullName)}</option>`
-    )
+  $("sfDriverKey").innerHTML = getSelectableDrivers()
+    .map((p) => `<option value="${p.staffKey}">${escapeHtml(p.fullName)}</option>`)
     .join("");
 
-  $("sfDriverKey").innerHTML = driverOptions;
-
-  const carOptions = [
+  $("sfCarId").innerHTML = [
     `<option value="">Seleccionar coche</option>`,
     ...getActiveCarsList().map(
       (car) => `<option value="${car.id}">${escapeHtml(getCarLabel(car))}</option>`
     ),
   ].join("");
 
-  $("sfCarId").innerHTML = carOptions;
-
   if (state.currentUser.role === "manager") {
-    if (!$("sfDriverKey").value) $("sfDriverKey").value = state.currentUser.staffKey;
+    $("sfDriverKey").value = state.currentUser.staffKey;
     applyDriverDefaultCar();
   } else {
-    const ownProfile = getProfileByKey(state.currentUser.staffKey);
-    if (ownProfile?.defaultCarId) $("sfCarId").value = ownProfile.defaultCarId;
+    const own = getProfileByKey(state.currentUser.staffKey);
+    $("sfCarId").value = own?.defaultCarId || "";
   }
 }
 
 function renderHistoryDriverFilter() {
-  if (!state.currentUser) return;
-
   if (state.currentUser.role !== "manager") {
     $("historyDriverFilter").innerHTML = `<option value="${state.currentUser.staffKey}">${escapeHtml(
       state.currentUser.fullName
@@ -900,20 +858,15 @@ function renderHistoryDriverFilter() {
     return;
   }
 
-  const options = [
+  $("historyDriverFilter").innerHTML = [
     `<option value="all">All</option>`,
     ...getSelectableDrivers().map(
-      (profile) =>
-        `<option value="${profile.staffKey}">${escapeHtml(profile.fullName)}</option>`
+      (p) => `<option value="${p.staffKey}">${escapeHtml(p.fullName)}</option>`
     ),
-  ];
-
-  $("historyDriverFilter").innerHTML = options.join("");
+  ].join("");
 }
 
 function renderReportDriverFilter() {
-  if (!state.currentUser) return;
-
   if (state.currentUser.role !== "manager") {
     $("reportDriverFilter").innerHTML = `<option value="${state.currentUser.staffKey}">${escapeHtml(
       state.currentUser.fullName
@@ -921,19 +874,15 @@ function renderReportDriverFilter() {
     return;
   }
 
-  const options = [
+  $("reportDriverFilter").innerHTML = [
     `<option value="all">All</option>`,
     ...getSelectableDrivers().map(
-      (profile) =>
-        `<option value="${profile.staffKey}">${escapeHtml(profile.fullName)}</option>`
+      (p) => `<option value="${p.staffKey}">${escapeHtml(p.fullName)}</option>`
     ),
-  ];
-
-  $("reportDriverFilter").innerHTML = options.join("");
+  ].join("");
 }
 
 function renderNewDriverCarOptions() {
-  if (!$("newDriverCarId")) return;
   $("newDriverCarId").innerHTML = [
     `<option value="">Sin coche por defecto</option>`,
     ...getActiveCarsList().map(
@@ -943,29 +892,22 @@ function renderNewDriverCarOptions() {
 }
 
 function renderNewCarDriverOptions() {
-  if (!$("newCarDriverKey")) return;
   $("newCarDriverKey").innerHTML = [
     `<option value="">Sin conductor por defecto</option>`,
     ...getSelectableDrivers().map(
-      (profile) =>
-        `<option value="${profile.staffKey}">${escapeHtml(profile.fullName)}</option>`
+      (p) => `<option value="${p.staffKey}">${escapeHtml(p.fullName)}</option>`
     ),
   ].join("");
 }
 
 function applyDriverDefaultCar() {
-  const selectedDriver = getProfileByKey($("sfDriverKey").value);
-  if (!selectedDriver) return;
-
-  if (selectedDriver.defaultCarId) {
-    $("sfCarId").value = selectedDriver.defaultCarId;
-  } else if (state.currentUser.role === "manager") {
-    $("sfCarId").value = "";
-  }
+  const profile = getProfileByKey($("sfDriverKey").value);
+  if (!profile) return;
+  $("sfCarId").value = profile.defaultCarId || "";
 }
 
 /* =========================================================
-   SHIFT DEFAULTS
+   SHIFT DEFAULTS + CALC
 ========================================================= */
 function setShiftDefaults() {
   $("sfDate").value = todayISO();
@@ -1000,18 +942,15 @@ function setShiftDefaults() {
     $(id).value = "0";
   });
 
-  if (state.currentUser?.role === "manager") {
+  if (state.currentUser.role === "manager") {
     $("sfDriverKey").value = state.currentUser.staffKey;
     applyDriverDefaultCar();
-  } else if (state.currentUser) {
-    const ownProfile = getProfileByKey(state.currentUser.staffKey);
-    $("sfCarId").value = ownProfile?.defaultCarId || "";
+  } else {
+    const own = getProfileByKey(state.currentUser.staffKey);
+    $("sfCarId").value = own?.defaultCarId || "";
   }
 }
 
-/* =========================================================
-   SHIFT CALCULATION
-========================================================= */
 function minutesBetween(dateStr, startTime, endTime) {
   if (!dateStr || !startTime || !endTime) return 0;
 
@@ -1077,10 +1016,8 @@ function calculateShift(raw) {
   const totalIncome = totalTaximetro + totalCabify + totalFreeNow + totalUber;
 
   const totalFuel = num(raw.fuel1) + num(raw.fuel2) + num(raw.fuel3) + num(raw.fuelOther);
-
   const totalExpenses =
     num(raw.parking) + num(raw.tolls) + num(raw.cleaning) + num(raw.otherExpenses);
-
   const totalMaintenance =
     num(raw.wash) +
     num(raw.oil) +
@@ -1098,22 +1035,18 @@ function calculateShift(raw) {
     workedMinutes,
     workedHours,
     km,
-
     totalTaximetro,
     totalCabify,
     totalFreeNow,
     totalUber,
-
     totalCash,
     totalCard,
     totalApps,
     totalIncome,
-
     totalFuel,
     totalExpenses,
     totalMaintenance,
     totalSpending,
-
     netProfit,
     kmPerEuro,
     eurPerHour,
@@ -1121,166 +1054,145 @@ function calculateShift(raw) {
 }
 
 function renderShiftPreview() {
-  try {
-    const raw = getShiftFormRaw();
-    const calc = calculateShift(raw);
+  const raw = getShiftFormRaw();
+  const calc = calculateShift(raw);
 
-    $("taximetroTotalBadge").textContent = money(calc.totalTaximetro);
-    $("cabifyTotalBadge").textContent = money(calc.totalCabify);
-    $("freenowTotalBadge").textContent = money(calc.totalFreeNow);
-    $("uberTotalBadge").textContent = money(calc.totalUber);
+  $("taximetroTotalBadge").textContent = money(calc.totalTaximetro);
+  $("cabifyTotalBadge").textContent = money(calc.totalCabify);
+  $("freenowTotalBadge").textContent = money(calc.totalFreeNow);
+  $("uberTotalBadge").textContent = money(calc.totalUber);
 
-    $("fuelTotalBadge").textContent = money(calc.totalFuel);
-    $("expensesTotalBadge").textContent = money(calc.totalExpenses);
-    $("maintenanceTotalBadge").textContent = money(calc.totalMaintenance);
+  $("fuelTotalBadge").textContent = money(calc.totalFuel);
+  $("expensesTotalBadge").textContent = money(calc.totalExpenses);
+  $("maintenanceTotalBadge").textContent = money(calc.totalMaintenance);
 
-    $("sumCash").textContent = money(calc.totalCash);
-    $("sumCard").textContent = money(calc.totalCard);
-    $("sumApps").textContent = money(calc.totalApps);
-    $("sumIncome").textContent = money(calc.totalIncome);
+  $("sumCash").textContent = money(calc.totalCash);
+  $("sumCard").textContent = money(calc.totalCard);
+  $("sumApps").textContent = money(calc.totalApps);
+  $("sumIncome").textContent = money(calc.totalIncome);
 
-    $("sumFuel").textContent = money(calc.totalFuel);
-    $("sumExpenses").textContent = money(calc.totalExpenses);
-    $("sumMaintenance").textContent = money(calc.totalMaintenance);
-    $("sumSpending").textContent = money(calc.totalSpending);
+  $("sumFuel").textContent = money(calc.totalFuel);
+  $("sumExpenses").textContent = money(calc.totalExpenses);
+  $("sumMaintenance").textContent = money(calc.totalMaintenance);
+  $("sumSpending").textContent = money(calc.totalSpending);
 
-    $("finalIncome").textContent = money(calc.totalIncome);
-    $("finalFuel").textContent = money(calc.totalFuel);
-    $("finalSpending").textContent = money(calc.totalSpending);
-    $("finalNet").textContent = money(calc.netProfit);
+  $("finalIncome").textContent = money(calc.totalIncome);
+  $("finalFuel").textContent = money(calc.totalFuel);
+  $("finalSpending").textContent = money(calc.totalSpending);
+  $("finalNet").textContent = money(calc.netProfit);
 
-    $("shiftPreview").innerHTML = [
-      statCard("Horas", calc.workedHours.toFixed(2), `${calc.workedMinutes} min`),
-      statCard("KM", calc.km.toFixed(1), "Input directo"),
-      statCard("Ingresos", money(calc.totalIncome), "Todas las fuentes"),
-      statCard("Fuel", money(calc.totalFuel), "Solo combustible"),
-      statCard("Spending", money(calc.totalSpending), "Fuel + gastos + mantenimiento"),
-      statCard("Neto", money(calc.netProfit), "Ingresos - gastos"),
-      statCard("KM/€", calc.kmPerEuro.toFixed(3), "Media"),
-      statCard("€/hora", calc.eurPerHour.toFixed(2), "Media"),
-    ].join("");
-  } catch (error) {
-    console.error(error);
-    $("shiftPreview").innerHTML = statCard("Preview", "—", "Completa el turno");
-  }
+  $("shiftPreview").innerHTML = [
+    statCard("Horas", calc.workedHours.toFixed(2), `${calc.workedMinutes} min`),
+    statCard("KM", calc.km.toFixed(1), "Input directo"),
+    statCard("Ingresos", money(calc.totalIncome), "Todas las fuentes"),
+    statCard("Fuel", money(calc.totalFuel), "Combustible"),
+    statCard("Spending", money(calc.totalSpending), "Todo el gasto"),
+    statCard("Neto", money(calc.netProfit), "Final"),
+    statCard("KM/€", calc.kmPerEuro.toFixed(3), "Media"),
+    statCard("€/hora", calc.eurPerHour.toFixed(2), "Media"),
+  ].join("");
 }
 
-/* =========================================================
-   SAVE SHIFT
-========================================================= */
-async function handleSaveShift(e) {
+async function saveShift(e) {
   e.preventDefault();
 
   try {
-    const payload = buildShiftPayload();
-    await addDoc(collection(db, "shifts"), payload);
+    const driverKey =
+      state.currentUser.role === "manager"
+        ? $("sfDriverKey").value
+        : state.currentUser.staffKey;
+
+    const profile = getProfileByKey(driverKey);
+    if (!profile) throw new Error("Driver no válido.");
+
+    const car = getCarById($("sfCarId").value);
+    const raw = getShiftFormRaw();
+
+    if (!raw.dateKey) throw new Error("La fecha es obligatoria.");
+    if (!raw.startTime || !raw.endTime) throw new Error("Las horas son obligatorias.");
+    if (num(raw.km) < 0) throw new Error("KM no válidos.");
+
+    const calc = calculateShift(raw);
+
+    await addDoc(collection(db, "shifts"), {
+      driverKey: profile.staffKey,
+      driverName: profile.fullName,
+      driverColorClass: profile.colorClass || "",
+      driverColorHex: profile.colorHex || "#1d4ed8",
+
+      carId: car?.id || "",
+      vehicle: car ? getCarLabel(car) : "",
+
+      dateKey: raw.dateKey,
+      startTime: raw.startTime,
+      endTime: raw.endTime,
+      notes: raw.notes,
+
+      km: calc.km,
+      workedMinutes: calc.workedMinutes,
+      workedHours: calc.workedHours,
+
+      taximetroCash: num(raw.taximetroCash),
+      taximetroCard: num(raw.taximetroCard),
+      cabifyCash: num(raw.cabifyCash),
+      cabifyApp: num(raw.cabifyApp),
+      freeNowCash: num(raw.freeNowCash),
+      freeNowApp: num(raw.freeNowApp),
+      uberApp: num(raw.uberApp),
+
+      totalTaximetro: calc.totalTaximetro,
+      totalCabify: calc.totalCabify,
+      totalFreeNow: calc.totalFreeNow,
+      totalUber: calc.totalUber,
+      totalCash: calc.totalCash,
+      totalCard: calc.totalCard,
+      totalApps: calc.totalApps,
+      totalIncome: calc.totalIncome,
+
+      fuel1: num(raw.fuel1),
+      fuel2: num(raw.fuel2),
+      fuel3: num(raw.fuel3),
+      fuelOther: num(raw.fuelOther),
+      totalFuel: calc.totalFuel,
+
+      parking: num(raw.parking),
+      tolls: num(raw.tolls),
+      cleaning: num(raw.cleaning),
+      otherExpenses: num(raw.otherExpenses),
+      totalExpenses: calc.totalExpenses,
+
+      wash: num(raw.wash),
+      oil: num(raw.oil),
+      tyres: num(raw.tyres),
+      workshop: num(raw.workshop),
+      itv: num(raw.itv),
+      otherMaintenance: num(raw.otherMaintenance),
+      totalMaintenance: calc.totalMaintenance,
+
+      totalSpending: calc.totalSpending,
+      netProfit: calc.netProfit,
+      kmPerEuro: calc.kmPerEuro,
+      eurPerHour: calc.eurPerHour,
+
+      managerKey: "mudassar",
+      managerName: "MUDASSAR",
+
+      status: "CLOSED",
+      createdByUid: state.authUser.uid,
+      createdByKey: state.currentUser.staffKey,
+      createdByRole: state.currentUser.role,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
 
     showToast("Turno guardado.");
     $("shiftForm").reset();
     setShiftDefaults();
     renderShiftPreview();
-
-    openView("historyView");
-    document.querySelectorAll(".nav-btn").forEach((b) => b.classList.remove("active"));
-    document.querySelector('[data-view="historyView"]').classList.add("active");
   } catch (error) {
     console.error(error);
     showToast(error.message || "No se pudo guardar el turno.");
   }
-}
-
-function buildShiftPayload() {
-  if (!state.currentUser) throw new Error("No hay sesión activa.");
-
-  const driverKey =
-    state.currentUser.role === "manager"
-      ? $("sfDriverKey").value
-      : state.currentUser.staffKey;
-
-  const profile = getProfileByKey(driverKey);
-  if (!profile) throw new Error("Driver no válido.");
-
-  const carId = $("sfCarId").value;
-  const car = carId ? getCarById(carId) : null;
-
-  const raw = getShiftFormRaw();
-
-  if (!raw.dateKey) throw new Error("La fecha es obligatoria.");
-  if (!raw.startTime || !raw.endTime) throw new Error("Las horas son obligatorias.");
-  if (num(raw.km) < 0) throw new Error("Los KM no pueden ser negativos.");
-
-  const calc = calculateShift(raw);
-
-  return {
-    driverKey: profile.staffKey,
-    driverName: profile.fullName,
-    driverColorClass: profile.colorClass || "",
-    driverColorHex: profile.colorHex || "#1d4ed8",
-
-    carId: car?.id || "",
-    vehicle: car ? getCarLabel(car) : "",
-
-    dateKey: raw.dateKey,
-    startTime: raw.startTime,
-    endTime: raw.endTime,
-    notes: raw.notes,
-
-    km: calc.km,
-    workedMinutes: calc.workedMinutes,
-    workedHours: calc.workedHours,
-
-    taximetroCash: num(raw.taximetroCash),
-    taximetroCard: num(raw.taximetroCard),
-    cabifyCash: num(raw.cabifyCash),
-    cabifyApp: num(raw.cabifyApp),
-    freeNowCash: num(raw.freeNowCash),
-    freeNowApp: num(raw.freeNowApp),
-    uberApp: num(raw.uberApp),
-
-    totalTaximetro: calc.totalTaximetro,
-    totalCabify: calc.totalCabify,
-    totalFreeNow: calc.totalFreeNow,
-    totalUber: calc.totalUber,
-    totalCash: calc.totalCash,
-    totalCard: calc.totalCard,
-    totalApps: calc.totalApps,
-    totalIncome: calc.totalIncome,
-
-    fuel1: num(raw.fuel1),
-    fuel2: num(raw.fuel2),
-    fuel3: num(raw.fuel3),
-    fuelOther: num(raw.fuelOther),
-    totalFuel: calc.totalFuel,
-
-    parking: num(raw.parking),
-    tolls: num(raw.tolls),
-    cleaning: num(raw.cleaning),
-    otherExpenses: num(raw.otherExpenses),
-    totalExpenses: calc.totalExpenses,
-
-    wash: num(raw.wash),
-    oil: num(raw.oil),
-    tyres: num(raw.tyres),
-    workshop: num(raw.workshop),
-    itv: num(raw.itv),
-    otherMaintenance: num(raw.otherMaintenance),
-    totalMaintenance: calc.totalMaintenance,
-
-    totalSpending: calc.totalSpending,
-    netProfit: calc.netProfit,
-    kmPerEuro: calc.kmPerEuro,
-    eurPerHour: calc.eurPerHour,
-
-    managerKey: "mudassar",
-    managerName: "MUDASSAR",
-
-    status: "CLOSED",
-    createdByUid: state.authUser.uid,
-    createdByKey: state.currentUser.staffKey,
-    createdByRole: state.currentUser.role,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  };
 }
 
 /* =========================================================
@@ -1309,29 +1221,24 @@ function summarizeRows(rows) {
       acc.totalSpending += num(row.totalSpending);
 
       acc.netProfit += num(row.netProfit);
-
       return acc;
     },
     {
       count: 0,
       totalHours: 0,
       totalKm: 0,
-
       totalTaximetro: 0,
       totalCabify: 0,
       totalFreeNow: 0,
       totalUber: 0,
-
       totalCash: 0,
       totalCard: 0,
       totalApps: 0,
       totalIncome: 0,
-
       totalFuel: 0,
       totalExpenses: 0,
       totalMaintenance: 0,
       totalSpending: 0,
-
       netProfit: 0,
       kmPerEuro: 0,
       eurPerHour: 0,
@@ -1340,6 +1247,7 @@ function summarizeRows(rows) {
 
   summary.kmPerEuro = safeDiv(summary.totalKm, summary.totalIncome);
   summary.eurPerHour = safeDiv(summary.totalIncome, summary.totalHours);
+
   return summary;
 }
 
@@ -1409,34 +1317,32 @@ function buildCoveredHours(startHour, endHour) {
 }
 
 function getPeakHour(rows) {
-  const hourTotals = new Array(24).fill(0);
+  const totals = new Array(24).fill(0);
 
   rows.forEach((row) => {
     const startHour = extractHour(row.startTime);
     const endHour = extractHour(row.endTime);
     if (startHour === null || endHour === null) return;
 
-    const coveredHours = buildCoveredHours(startHour, endHour);
-    if (!coveredHours.length) return;
+    const covered = buildCoveredHours(startHour, endHour);
+    const allocated = safeDiv(num(row.totalIncome), covered.length || 1);
 
-    const distributed = safeDiv(num(row.totalIncome), coveredHours.length);
-    coveredHours.forEach((hour) => {
-      hourTotals[hour] += distributed;
+    covered.forEach((hour) => {
+      totals[hour] += allocated;
     });
   });
 
   let bestHour = null;
   let bestAmount = 0;
 
-  hourTotals.forEach((amount, hour) => {
+  totals.forEach((amount, hour) => {
     if (amount > bestAmount) {
-      bestHour = hour;
       bestAmount = amount;
+      bestHour = hour;
     }
   });
 
-  if (bestHour === null) return null;
-  return { hour: bestHour, amount: bestAmount };
+  return bestHour === null ? null : { hour: bestHour, amount: bestAmount };
 }
 
 function getBestDay(rows) {
@@ -1446,13 +1352,6 @@ function getBestDay(rows) {
     .sort((a, b) => b.summary.totalIncome - a.summary.totalIncome)[0] || null;
 }
 
-function getHighestFuelDay(rows) {
-  const groups = groupRowsBy(rows, (row) => row.dateKey);
-  return Object.entries(groups)
-    .map(([key, groupedRows]) => ({ key, summary: summarizeRows(groupedRows) }))
-    .sort((a, b) => b.summary.totalFuel - a.summary.totalFuel)[0] || null;
-}
-
 function getWorstDay(rows) {
   const groups = groupRowsBy(rows, (row) => row.dateKey);
   return Object.entries(groups)
@@ -1460,11 +1359,18 @@ function getWorstDay(rows) {
     .sort((a, b) => a.summary.totalIncome - b.summary.totalIncome)[0] || null;
 }
 
+function getHighestFuelDay(rows) {
+  const groups = groupRowsBy(rows, (row) => row.dateKey);
+  return Object.entries(groups)
+    .map(([key, groupedRows]) => ({ key, summary: summarizeRows(groupedRows) }))
+    .sort((a, b) => b.summary.totalFuel - a.summary.totalFuel)[0] || null;
+}
+
 function getBestDriver(rows) {
   const groups = groupRowsBy(rows, (row) => row.driverKey);
   return Object.entries(groups)
-    .map(([key, groupedRows]) => ({
-      profile: getProfileByKey(key),
+    .map(([driverKey, groupedRows]) => ({
+      profile: getProfileByKey(driverKey),
       summary: summarizeRows(groupedRows),
     }))
     .sort((a, b) => b.summary.totalIncome - a.summary.totalIncome)[0] || null;
@@ -1473,7 +1379,41 @@ function getBestDriver(rows) {
 /* =========================================================
    DASHBOARD
 ========================================================= */
+function renderDashboardProfileHero() {
+  const profile = getProfileByKey(state.currentUser.staffKey);
+  if (!profile) return;
+
+  const ownRows =
+    state.currentUser.role === "manager"
+      ? filterRowsByRange(state.shifts, "today")
+      : filterRowsByRange(state.shifts.filter((r) => r.driverKey === profile.staffKey), "today");
+
+  const summary = summarizeRows(ownRows);
+
+  $("dashboardProfileHero").innerHTML = `
+    <div class="profile-hero-top">
+      ${getProfileImageHtml(profile, "large")}
+      <div class="profile-name">${escapeHtml(profile.fullName)}</div>
+      <div class="profile-role">${escapeHtml(
+        profile.role === "manager" ? "Manager / Driver" : "Driver"
+      )}</div>
+      <span class="profile-hero-badge" style="background:${escapeHtml(profile.colorHex || "#1d4ed8")}">
+        ${escapeHtml(profile.fullName)}
+      </span>
+    </div>
+
+    <div class="stats-grid compact">
+      ${statCard("Hoy ingresos", money(summary.totalIncome), `${summary.count} turnos`)}
+      ${statCard("Hoy fuel", money(summary.totalFuel), "Combustible")}
+      ${statCard("Hoy neto", money(summary.netProfit), "Final")}
+      ${statCard("KM/€ hoy", summary.kmPerEuro.toFixed(3), "Media")}
+    </div>
+  `;
+}
+
 function renderDashboard() {
+  renderDashboardProfileHero();
+
   const todayRows = filterRowsByRange(state.shifts, "today");
   const weekRows = filterRowsByRange(state.shifts, "week");
   const monthRows = filterRowsByRange(state.shifts, "month");
@@ -1486,9 +1426,9 @@ function renderDashboard() {
 
   $("dashboardStats").innerHTML = [
     statCard("Ingresos hoy", money(today.totalIncome), `${today.count} turnos`),
-    statCard("Fuel hoy", money(today.totalFuel), "Solo combustible"),
+    statCard("Fuel hoy", money(today.totalFuel), "Combustible"),
     statCard("Spending hoy", money(today.totalSpending), "Todo el gasto"),
-    statCard("Neto hoy", money(today.netProfit), "Resultado final"),
+    statCard("Neto hoy", money(today.netProfit), "Final"),
     statCard("Ingresos semana", money(week.totalIncome), `${week.totalKm.toFixed(1)} km`),
     statCard("Ingresos mes", money(month.totalIncome), `${month.totalHours.toFixed(1)} h`),
     statCard("Ingresos año", money(year.totalIncome), `${year.count} turnos`),
@@ -1503,10 +1443,10 @@ function renderDashboard() {
   ].join("");
 
   $("todaySpendingSources").innerHTML = [
-    statCard("Fuel", money(today.totalFuel), "Separado"),
+    statCard("Fuel", money(today.totalFuel), "Combustible"),
     statCard("Gastos", money(today.totalExpenses), "Operativos"),
-    statCard("Mantenimiento", money(today.totalMaintenance), "Servicio / taller"),
-    statCard("Neto", money(today.netProfit), "Ingreso - gasto"),
+    statCard("Mantenimiento", money(today.totalMaintenance), "Servicio"),
+    statCard("Neto", money(today.netProfit), "Final"),
   ].join("");
 
   renderTopDrivers();
@@ -1526,33 +1466,31 @@ function renderTopDrivers() {
 
   $("topDriversList").innerHTML = ranked.length
     ? ranked
-        .map(({ profile, summary }) => {
-          return `
-            <div class="stack-row">
-              <div class="stack-row-left">
-                ${getDriverLineHtml(profile)}
-                ${getProfileImageHtml(profile, "small")}
-                <div>
-                  <strong>${escapeHtml(profile.fullName)}</strong>
-                  <div class="muted">${summary.count} turnos • ${summary.totalKm.toFixed(1)} km</div>
-                </div>
-              </div>
+        .map(({ profile, summary }) => `
+          <div class="stack-row">
+            <div class="stack-row-left">
+              ${getDriverLineHtml(profile)}
+              ${getProfileImageHtml(profile, "small")}
               <div>
-                <strong>${money(summary.totalIncome)}</strong>
-                <div class="muted">Neto ${money(summary.netProfit)}</div>
+                <strong>${escapeHtml(profile.fullName)}</strong>
+                <div class="muted">${summary.count} turnos • ${summary.totalKm.toFixed(1)} km</div>
               </div>
             </div>
-          `;
-        })
+            <div>
+              <strong>${money(summary.totalIncome)}</strong>
+              <div class="muted">Neto ${money(summary.netProfit)}</div>
+            </div>
+          </div>
+        `)
         .join("")
-    : `<div class="center-empty">No hay turnos todavía.</div>`;
+    : `<div class="center-empty">No hay turnos aún.</div>`;
 }
 
 function renderPeakAnalytics() {
   const bestDay = getBestDay(state.shifts);
+  const worstDay = getWorstDay(state.shifts);
   const peakHour = getPeakHour(state.shifts);
   const fuelDay = getHighestFuelDay(state.shifts);
-  const bestDriver = getBestDriver(state.shifts);
 
   const items = [
     {
@@ -1561,33 +1499,33 @@ function renderPeakAnalytics() {
       sub: bestDay ? `${bestDay.summary.count} turnos` : "Sin datos",
     },
     {
+      title: "Peor día",
+      value: worstDay ? `${worstDay.key} · ${money(worstDay.summary.totalIncome)}` : "—",
+      sub: worstDay ? "Por ingresos" : "Sin datos",
+    },
+    {
       title: "Hora pico",
       value: peakHour ? `${String(peakHour.hour).padStart(2, "0")}:00 · ${money(peakHour.amount)}` : "—",
-      sub: peakHour ? "Estimación por horas" : "Sin datos",
+      sub: peakHour ? "Estimación" : "Sin datos",
     },
     {
       title: "Día con más fuel",
       value: fuelDay ? `${fuelDay.key} · ${money(fuelDay.summary.totalFuel)}` : "—",
-      sub: fuelDay ? "Fuel total" : "Sin datos",
-    },
-    {
-      title: "Top driver",
-      value: bestDriver ? bestDriver.profile.fullName : "—",
-      sub: bestDriver ? money(bestDriver.summary.totalIncome) : "Sin datos",
+      sub: fuelDay ? "Combustible" : "Sin datos",
     },
   ];
 
   $("peakAnalyticsList").innerHTML = items
     .map(
       (item) => `
-        <div class="stack-row">
-          <div>
-            <strong>${escapeHtml(item.title)}</strong>
-            <div class="muted">${escapeHtml(item.sub)}</div>
-          </div>
-          <div><strong>${escapeHtml(item.value)}</strong></div>
+      <div class="stack-row">
+        <div>
+          <strong>${escapeHtml(item.title)}</strong>
+          <div class="muted">${escapeHtml(item.sub)}</div>
         </div>
-      `
+        <div><strong>${escapeHtml(item.value)}</strong></div>
+      </div>
+    `
     )
     .join("");
 }
@@ -1607,17 +1545,19 @@ function getFilteredHistoryRows() {
   const carFilter = $("historyCarFilter").value.trim().toLowerCase();
 
   return state.shifts.filter((row) => {
-    const combined = [
-      row.driverName,
-      row.vehicle,
-      row.notes,
-      row.dateKey,
-      row.managerName,
-    ]
-      .join(" ")
-      .toLowerCase();
+    const matchesSearch =
+      !search ||
+      [
+        row.driverName,
+        row.vehicle,
+        row.notes,
+        row.dateKey,
+        row.managerName,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(search);
 
-    const matchesSearch = !search || combined.includes(search);
     const matchesDate = !dateFilter || row.dateKey === dateFilter;
     const matchesDriver =
       !driverFilter || driverFilter === "all" || row.driverKey === driverFilter;
@@ -1629,8 +1569,7 @@ function getFilteredHistoryRows() {
 }
 
 function getHistoryTotalPages() {
-  const count = getFilteredHistoryRows().length;
-  return Math.max(1, Math.ceil(count / HISTORY_PAGE_SIZE));
+  return Math.max(1, Math.ceil(getFilteredHistoryRows().length / HISTORY_PAGE_SIZE));
 }
 
 function renderHistoryTable() {
@@ -1651,9 +1590,7 @@ function renderHistoryTable() {
   if (!pageRows.length) {
     $("historyTableBody").innerHTML = `
       <tr>
-        <td colspan="9">
-          <div class="center-empty">No se encontraron turnos.</div>
-        </td>
+        <td colspan="9"><div class="center-empty">No se encontraron turnos.</div></td>
       </tr>
     `;
     return;
@@ -1662,10 +1599,8 @@ function renderHistoryTable() {
   $("historyTableBody").innerHTML = pageRows
     .map((row) => {
       const profile = getProfileByKey(row.driverKey) || FIXED_STAFF.mudassar;
-      const borderStyle = `border-left:5px solid ${getDriverDisplayColor(profile)};`;
-
       return `
-        <tr class="history-row" style="${escapeHtml(borderStyle)}">
+        <tr>
           <td>
             <div class="history-driver-cell">
               ${getProfileImageHtml(profile, "small")}
@@ -1697,9 +1632,9 @@ function renderHistoryTable() {
 function getReportRows() {
   const range = $("reportRange").value;
   const driverKey =
-    state.currentUser?.role === "manager"
+    state.currentUser.role === "manager"
       ? $("reportDriverFilter").value
-      : state.currentUser?.staffKey || "all";
+      : state.currentUser.staffKey;
   const carFilter = $("reportCarFilter").value.trim().toLowerCase();
 
   let rows = filterRowsByRange(state.shifts, range);
@@ -1732,12 +1667,69 @@ function renderReports() {
     statCard("Apps", money(summary.totalApps), "Cabify + Free Now + Uber"),
   ].join("");
 
+  renderReportProfileHero(rows, summary);
   renderReportPeakList(rows);
   renderReportBreakdownList(summary);
   renderDailyReportList(rows);
   renderPeriodReportList(rows, summary);
 
   queueChartRender();
+}
+
+function renderReportProfileHero(rows, summary) {
+  const hero = $("reportProfileHero");
+  const driverKey =
+    state.currentUser.role === "manager"
+      ? $("reportDriverFilter").value
+      : state.currentUser.staffKey;
+
+  if (driverKey && driverKey !== "all") {
+    const profile = getProfileByKey(driverKey);
+    if (!profile) {
+      hide(hero);
+      hero.innerHTML = "";
+      return;
+    }
+
+    show(hero);
+    hero.innerHTML = `
+      <div class="profile-hero-top">
+        ${getProfileImageHtml(profile, "large")}
+        <div class="profile-name">${escapeHtml(profile.fullName)}</div>
+        <div class="profile-role">${escapeHtml(
+          profile.role === "manager" ? "Manager / Driver" : "Driver"
+        )}</div>
+        <span class="profile-hero-badge" style="background:${escapeHtml(profile.colorHex || "#1d4ed8")}">
+          ${escapeHtml(profile.fullName)}
+        </span>
+      </div>
+
+      <div class="stats-grid compact">
+        ${statCard("Ingresos", money(summary.totalIncome), `${summary.count} turnos`)}
+        ${statCard("Fuel", money(summary.totalFuel), "Combustible")}
+        ${statCard("Neto", money(summary.netProfit), "Final")}
+        ${statCard("KM/€", summary.kmPerEuro.toFixed(3), "Media")}
+      </div>
+    `;
+    return;
+  }
+
+  show(hero);
+  hero.innerHTML = `
+    <div class="profile-hero-top">
+      <div class="big-avatar">G</div>
+      <div class="profile-name">GLOBAL REPORT</div>
+      <div class="profile-role">Todos los drivers</div>
+      <span class="profile-hero-badge" style="background:#111827">GLOBAL</span>
+    </div>
+
+    <div class="stats-grid compact">
+      ${statCard("Ingresos", money(summary.totalIncome), `${summary.count} turnos`)}
+      ${statCard("Fuel", money(summary.totalFuel), "Combustible")}
+      ${statCard("Neto", money(summary.netProfit), "Final")}
+      ${statCard("KM/€", summary.kmPerEuro.toFixed(3), "Media")}
+    </div>
+  `;
 }
 
 function renderReportPeakList(rows) {
@@ -1765,21 +1757,21 @@ function renderReportPeakList(rows) {
     {
       title: "Highest fuel day",
       value: fuelDay ? `${fuelDay.key} · ${money(fuelDay.summary.totalFuel)}` : "—",
-      sub: fuelDay ? "Fuel total" : "Sin datos",
+      sub: fuelDay ? "Combustible" : "Sin datos",
     },
   ];
 
   $("reportPeakList").innerHTML = items
     .map(
       (item) => `
-        <div class="stack-row">
-          <div>
-            <strong>${escapeHtml(item.title)}</strong>
-            <div class="muted">${escapeHtml(item.sub)}</div>
-          </div>
-          <div><strong>${escapeHtml(item.value)}</strong></div>
+      <div class="stack-row">
+        <div>
+          <strong>${escapeHtml(item.title)}</strong>
+          <div class="muted">${escapeHtml(item.sub)}</div>
         </div>
-      `
+        <div><strong>${escapeHtml(item.value)}</strong></div>
+      </div>
+    `
     )
     .join("");
 }
@@ -1790,23 +1782,23 @@ function renderReportBreakdownList(summary) {
     ["Cabify", money(summary.totalCabify), "Efectivo + app"],
     ["Free Now", money(summary.totalFreeNow), "Efectivo + app"],
     ["Uber", money(summary.totalUber), "Solo app"],
-    ["Fuel", money(summary.totalFuel), "Solo combustible"],
+    ["Fuel", money(summary.totalFuel), "Combustible"],
     ["Gastos", money(summary.totalExpenses), "Operativos"],
-    ["Mantenimiento", money(summary.totalMaintenance), "Servicio / taller"],
+    ["Mantenimiento", money(summary.totalMaintenance), "Servicio"],
     ["KM/€", summary.kmPerEuro.toFixed(3), "Media"],
   ];
 
   $("reportBreakdownList").innerHTML = items
     .map(
       ([title, value, sub]) => `
-        <div class="stack-row">
-          <div>
-            <strong>${escapeHtml(title)}</strong>
-            <div class="muted">${escapeHtml(sub)}</div>
-          </div>
-          <div><strong>${escapeHtml(value)}</strong></div>
+      <div class="stack-row">
+        <div>
+          <strong>${escapeHtml(title)}</strong>
+          <div class="muted">${escapeHtml(sub)}</div>
         </div>
-      `
+        <div><strong>${escapeHtml(value)}</strong></div>
+      </div>
+    `
     )
     .join("");
 }
@@ -1814,10 +1806,7 @@ function renderReportBreakdownList(summary) {
 function renderDailyReportList(rows) {
   const groups = groupRowsBy(rows, (row) => row.dateKey);
   const days = Object.entries(groups)
-    .map(([key, groupedRows]) => ({
-      key,
-      summary: summarizeRows(groupedRows),
-    }))
+    .map(([key, groupedRows]) => ({ key, summary: summarizeRows(groupedRows) }))
     .sort((a, b) => b.key.localeCompare(a.key))
     .slice(0, 12);
 
@@ -1825,21 +1814,17 @@ function renderDailyReportList(rows) {
     ? days
         .map(
           (day) => `
-            <div class="stack-row">
-              <div>
-                <strong>${escapeHtml(day.key)}</strong>
-                <div class="muted">${day.summary.count} turnos • ${day.summary.totalKm.toFixed(
-                  1
-                )} km</div>
-              </div>
-              <div>
-                <strong>${money(day.summary.totalIncome)}</strong>
-                <div class="muted">Fuel ${money(day.summary.totalFuel)} · Neto ${money(
-            day.summary.netProfit
-          )}</div>
-              </div>
-            </div>
-          `
+      <div class="stack-row">
+        <div>
+          <strong>${escapeHtml(day.key)}</strong>
+          <div class="muted">${day.summary.count} turnos • ${day.summary.totalKm.toFixed(1)} km</div>
+        </div>
+        <div>
+          <strong>${money(day.summary.totalIncome)}</strong>
+          <div class="muted">Fuel ${money(day.summary.totalFuel)} · Neto ${money(day.summary.netProfit)}</div>
+        </div>
+      </div>
+    `
         )
         .join("")
     : `<div class="center-empty">No hay datos de reporte.</div>`;
@@ -1847,25 +1832,22 @@ function renderDailyReportList(rows) {
 
 function renderPeriodReportList(rows, summary) {
   const bestDriver = getBestDriver(rows);
-  const avgIncome = safeDiv(summary.totalIncome, summary.count);
-  const avgFuel = safeDiv(summary.totalFuel, summary.count);
-  const avgNet = safeDiv(summary.netProfit, summary.count);
 
   const items = [
     {
       title: "Ingreso medio por turno",
-      value: money(avgIncome),
+      value: money(safeDiv(summary.totalIncome, summary.count)),
       sub: `${summary.count} turnos`,
     },
     {
       title: "Fuel medio por turno",
-      value: money(avgFuel),
-      sub: "Por turno",
+      value: money(safeDiv(summary.totalFuel, summary.count)),
+      sub: "Media",
     },
     {
       title: "Neto medio por turno",
-      value: money(avgNet),
-      sub: "Por turno",
+      value: money(safeDiv(summary.netProfit, summary.count)),
+      sub: "Media",
     },
     {
       title: "Mejor driver",
@@ -1877,304 +1859,49 @@ function renderPeriodReportList(rows, summary) {
   $("periodReportList").innerHTML = items
     .map(
       (item) => `
-        <div class="stack-row">
-          <div>
-            <strong>${escapeHtml(item.title)}</strong>
-            <div class="muted">${escapeHtml(item.sub)}</div>
-          </div>
-          <div><strong>${escapeHtml(item.value)}</strong></div>
+      <div class="stack-row">
+        <div>
+          <strong>${escapeHtml(item.title)}</strong>
+          <div class="muted">${escapeHtml(item.sub)}</div>
         </div>
-      `
+        <div><strong>${escapeHtml(item.value)}</strong></div>
+      </div>
+    `
     )
     .join("");
 }
 
 /* =========================================================
-   CHARTS
-========================================================= */
-function destroyCharts() {
-  ["incomeChart", "spendingChart", "reportChart", "appBreakdownChart"].forEach((key) => {
-    if (state[key]) {
-      try {
-        state[key].destroy();
-      } catch (_) {}
-      state[key] = null;
-    }
-  });
-}
-
-function queueChartRender() {
-  if (state.chartRenderQueued) return;
-  state.chartRenderQueued = true;
-
-  Promise.resolve().then(async () => {
-    state.chartRenderQueued = false;
-    await renderCharts();
-  });
-}
-
-async function ensureChartJs() {
-  if (window.Chart) return window.Chart;
-  if (state.chartLibPromise) return state.chartLibPromise;
-
-  state.chartLibPromise = new Promise((resolve, reject) => {
-    const existing = document.querySelector('script[data-chartjs="true"]');
-    if (existing) {
-      existing.addEventListener("load", () => resolve(window.Chart));
-      existing.addEventListener("error", reject);
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = "https://cdn.jsdelivr.net/npm/chart.js";
-    script.async = true;
-    script.dataset.chartjs = "true";
-    script.onload = () => resolve(window.Chart);
-    script.onerror = reject;
-    document.head.appendChild(script);
-  });
-
-  return state.chartLibPromise;
-}
-
-function getCssColor(variableName, fallback = "#1d4ed8") {
-  const value = getComputedStyle(document.body).getPropertyValue(variableName).trim();
-  return value || fallback;
-}
-
-function buildLastSevenDaysSeries(rows) {
-  const labels = [];
-  const incomeData = [];
-  const fuelData = [];
-  const netData = [];
-
-  for (let i = 6; i >= 0; i -= 1) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const key = d.toISOString().slice(0, 10);
-    labels.push(key);
-
-    const dayRows = rows.filter((row) => row.dateKey === key);
-    const summary = summarizeRows(dayRows);
-
-    incomeData.push(summary.totalIncome);
-    fuelData.push(summary.totalFuel);
-    netData.push(summary.netProfit);
-  }
-
-  return { labels, incomeData, fuelData, netData };
-}
-
-function buildGroupedSeriesByDay(rows) {
-  const groups = groupRowsBy(rows, (row) => row.dateKey);
-  const entries = Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
-
-  return {
-    labels: entries.map(([key]) => key),
-    income: entries.map(([, groupedRows]) => summarizeRows(groupedRows).totalIncome),
-    fuel: entries.map(([, groupedRows]) => summarizeRows(groupedRows).totalFuel),
-    net: entries.map(([, groupedRows]) => summarizeRows(groupedRows).netProfit),
-  };
-}
-
-async function renderCharts() {
-  try {
-    const ChartLib = await ensureChartJs();
-    if (!ChartLib) return;
-
-    renderDashboardCharts(ChartLib);
-    renderReportCharts(ChartLib);
-  } catch (error) {
-    console.warn("Chart.js no cargado:", error);
-  }
-}
-
-function renderDashboardCharts(ChartLib) {
-  if (!$("incomeChart") || !$("spendingChart")) return;
-
-  if (state.incomeChart) state.incomeChart.destroy();
-  if (state.spendingChart) state.spendingChart.destroy();
-
-  const series = buildLastSevenDaysSeries(state.shifts);
-
-  state.incomeChart = new ChartLib($("incomeChart"), {
-    type: "line",
-    data: {
-      labels: series.labels,
-      datasets: [
-        {
-          label: "Ingresos",
-          data: series.incomeData,
-          borderColor: getCssColor("--driver-mudassar", "#1d4ed8"),
-          backgroundColor: blendColor(getCssColor("--driver-mudassar", "#1d4ed8"), 0.18),
-          fill: true,
-          tension: 0.3,
-        },
-        {
-          label: "Neto",
-          data: series.netData,
-          borderColor: getCssColor("--success", "#16a34a"),
-          backgroundColor: blendColor(getCssColor("--success", "#16a34a"), 0.12),
-          fill: true,
-          tension: 0.3,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: { duration: 400 },
-      plugins: { legend: { display: true } },
-      scales: { y: { beginAtZero: true } },
-    },
-  });
-
-  state.spendingChart = new ChartLib($("spendingChart"), {
-    type: "bar",
-    data: {
-      labels: series.labels,
-      datasets: [
-        {
-          label: "Fuel",
-          data: series.fuelData,
-          backgroundColor: blendColor(getCssColor("--warning", "#d97706"), 0.65),
-        },
-        {
-          label: "Neto",
-          data: series.netData,
-          backgroundColor: blendColor(getCssColor("--success", "#16a34a"), 0.6),
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: { duration: 400 },
-      plugins: { legend: { display: true } },
-      scales: { y: { beginAtZero: true } },
-    },
-  });
-}
-
-function renderReportCharts(ChartLib) {
-  if (!$("reportChart") || !$("appBreakdownChart")) return;
-
-  if (state.reportChart) state.reportChart.destroy();
-  if (state.appBreakdownChart) state.appBreakdownChart.destroy();
-
-  const rows = getReportRows();
-  const grouped = buildGroupedSeriesByDay(rows);
-  const summary = summarizeRows(rows);
-
-  state.reportChart = new ChartLib($("reportChart"), {
-    type: "line",
-    data: {
-      labels: grouped.labels,
-      datasets: [
-        {
-          label: "Ingresos",
-          data: grouped.income,
-          borderColor: getCssColor("--driver-mudassar", "#1d4ed8"),
-          backgroundColor: blendColor(getCssColor("--driver-mudassar", "#1d4ed8"), 0.16),
-          fill: true,
-          tension: 0.3,
-        },
-        {
-          label: "Fuel",
-          data: grouped.fuel,
-          borderColor: getCssColor("--warning", "#d97706"),
-          backgroundColor: blendColor(getCssColor("--warning", "#d97706"), 0.12),
-          fill: true,
-          tension: 0.3,
-        },
-        {
-          label: "Neto",
-          data: grouped.net,
-          borderColor: getCssColor("--success", "#16a34a"),
-          backgroundColor: blendColor(getCssColor("--success", "#16a34a"), 0.1),
-          fill: true,
-          tension: 0.3,
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: { duration: 400 },
-      plugins: { legend: { display: true } },
-      scales: { y: { beginAtZero: true } },
-    },
-  });
-
-  state.appBreakdownChart = new ChartLib($("appBreakdownChart"), {
-    type: "bar",
-    data: {
-      labels: ["Taxímetro", "Cabify", "Free Now", "Uber"],
-      datasets: [
-        {
-          label: "Ingresos",
-          data: [
-            summary.totalTaximetro,
-            summary.totalCabify,
-            summary.totalFreeNow,
-            summary.totalUber,
-          ],
-          backgroundColor: [
-            blendColor(getCssColor("--taximetro-text", "#1849a9"), 0.65),
-            blendColor(getCssColor("--cabify-text", "#067647"), 0.65),
-            blendColor(getCssColor("--freenow-text", "#b54708"), 0.65),
-            blendColor(getCssColor("--uber-text", "#111827"), 0.65),
-          ],
-        },
-      ],
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: { duration: 400 },
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: true } },
-    },
-  });
-}
-
-/* =========================================================
-   DRIVERS MODULE
+   DRIVERS
 ========================================================= */
 function renderDriversStats() {
   const profiles = getVisibleProfiles();
-  const drivers = profiles.filter((p) => p.role === "driver").length;
-  const managers = profiles.filter((p) => p.role === "manager").length;
-  const withPhotos = profiles.filter((p) => p.photoUrl).length;
+  const withPhotos = profiles.filter((p) => !!p.photoUrl).length;
   const active = profiles.filter((p) => p.active !== false).length;
 
   $("driversStats").innerHTML = [
-    statCard("Perfiles", String(profiles.length), "Visibles"),
-    statCard("Drivers", String(drivers), "Conductores"),
-    statCard("Managers", String(managers), "Gestión"),
-    statCard("Con foto", String(withPhotos), "Imagen subida"),
+    statCard("Perfiles visibles", String(profiles.length), "Total"),
     statCard("Activos", String(active), "Disponibles"),
+    statCard("Con foto", String(withPhotos), "Imagen"),
   ].join("");
 }
 
 function renderDriversGrid() {
   const profiles = getVisibleProfiles();
 
+  if (state.currentUser.role !== "manager") hide(document.querySelector(".driver-create-card"));
+  else show(document.querySelector(".driver-create-card"));
+
   $("driversGrid").innerHTML = profiles
     .map((profile) => renderDriverCard(profile))
     .join("");
-
-  if (state.currentUser?.role !== "manager") {
-    hide(document.querySelector(".driver-create-card"));
-  } else {
-    show(document.querySelector(".driver-create-card"));
-  }
 
   attachDriverCardEvents();
 }
 
 function renderDriverCard(profile) {
-  const editable = state.currentUser?.role === "manager" || state.currentUser?.staffKey === profile.staffKey;
+  const editable =
+    state.currentUser.role === "manager" || state.currentUser.staffKey === profile.staffKey;
 
   const carOptions = [
     `<option value="">Sin coche por defecto</option>`,
@@ -2185,9 +1912,6 @@ function renderDriverCard(profile) {
   ].join("");
 
   const activeChecked = profile.active !== false ? "checked" : "";
-  const systemText = profile.systemUser
-    ? "Login real Firebase"
-    : "Perfil operativo (sin login automático)";
 
   return `
     <div class="card profile-card" data-driver-card="${escapeHtml(profile.staffKey)}">
@@ -2195,19 +1919,17 @@ function renderDriverCard(profile) {
 
       <div class="profile-card-head">
         ${getProfileImageHtml(profile, "large")}
-        <div>
-          <div class="profile-name">${escapeHtml(profile.fullName)}</div>
-          <div class="profile-role">${escapeHtml(
-            profile.role === "manager" ? "Manager / Driver" : "Driver"
-          )}</div>
-          ${getDriverBadgeHtml(profile)}
-        </div>
+        <div class="profile-name">${escapeHtml(profile.fullName)}</div>
+        <div class="profile-role">${escapeHtml(
+          profile.role === "manager" ? "Manager / Driver" : "Driver"
+        )}</div>
+        ${getDriverBadgeHtml(profile)}
       </div>
 
       <div class="profile-meta-list">
         <div>Email: ${escapeHtml(profile.email || "-")}</div>
         <div>Manager: ${escapeHtml(profile.managerName || "-")}</div>
-        <div>Acceso: ${escapeHtml(systemText)}</div>
+        <div>Acceso: ${escapeHtml(profile.systemUser ? "Firebase Auth real" : "Perfil operativo")}</div>
       </div>
 
       <div class="grid-2">
@@ -2217,8 +1939,7 @@ function renderDriverCard(profile) {
             type="text"
             data-driver-name="${escapeHtml(profile.staffKey)}"
             value="${escapeHtml(profile.fullName || "")}"
-            ${editable ? "" : "disabled"}
-            ${profile.systemUser ? "disabled" : ""}
+            ${(editable && !profile.systemUser) ? "" : "disabled"}
           />
         </label>
 
@@ -2253,28 +1974,29 @@ function renderDriverCard(profile) {
         </label>
       </div>
 
-      <div class="grid-2">
-        <label>
-          <span>Activo</span>
-          <input
-            type="checkbox"
-            data-driver-active="${escapeHtml(profile.staffKey)}"
-            ${activeChecked}
-            ${editable ? "" : "disabled"}
-          />
-        </label>
-      </div>
+      ${
+        state.currentUser.role === "manager"
+          ? `
+        <div class="grid-2">
+          <label>
+            <span>Activo</span>
+            <input
+              type="checkbox"
+              data-driver-active="${escapeHtml(profile.staffKey)}"
+              ${activeChecked}
+            />
+          </label>
+        </div>
+      `
+          : ""
+      }
 
       <div class="profile-actions">
         ${
           editable
             ? `
-          <button class="secondary-btn" type="button" data-manage-photo="${escapeHtml(profile.staffKey)}">
-            Gestionar foto
-          </button>
-          <button class="primary-btn" type="button" data-save-driver="${escapeHtml(profile.staffKey)}">
-            Guardar driver
-          </button>
+          <button class="secondary-btn" type="button" data-driver-photo="${escapeHtml(profile.staffKey)}">Cambiar foto</button>
+          <button class="primary-btn" type="button" data-save-driver="${escapeHtml(profile.staffKey)}">Guardar</button>
         `
             : ""
         }
@@ -2284,23 +2006,19 @@ function renderDriverCard(profile) {
 }
 
 function attachDriverCardEvents() {
-  document.querySelectorAll("[data-save-driver]").forEach((btn) => {
-    btn.onclick = async () => {
-      const staffKey = btn.getAttribute("data-save-driver");
-      await saveDriverProfile(staffKey);
-    };
+  document.querySelectorAll("[data-driver-photo]").forEach((btn) => {
+    btn.onclick = () => openPhotoModal(btn.getAttribute("data-driver-photo"));
   });
 
-  document.querySelectorAll("[data-manage-photo]").forEach((btn) => {
-    btn.onclick = () => {
-      const staffKey = btn.getAttribute("data-manage-photo");
-      openPhotoModal(staffKey);
+  document.querySelectorAll("[data-save-driver]").forEach((btn) => {
+    btn.onclick = async () => {
+      await saveDriverProfile(btn.getAttribute("data-save-driver"));
     };
   });
 }
 
-async function handleCreateDriver() {
-  if (state.currentUser?.role !== "manager") {
+async function createDriver() {
+  if (state.currentUser.role !== "manager") {
     showToast("Solo el manager puede crear drivers.");
     return;
   }
@@ -2312,27 +2030,20 @@ async function handleCreateDriver() {
     const defaultCarId = $("newDriverCarId").value;
     const phone = $("newDriverPhone").value.trim();
     const colorHex = $("newDriverColor").value || "#16a34a";
-    const aliasInput = $("newDriverAlias").value.trim();
+    const alias = slugify($("newDriverAlias").value.trim() || fullName);
 
     if (!fullName) throw new Error("El nombre es obligatorio.");
+    if (!alias) throw new Error("Alias no válido.");
+    if (getProfileByKey(alias)) throw new Error("Ese alias ya existe.");
 
-    const generatedKey = slugify(aliasInput || fullName);
-    if (!generatedKey) throw new Error("Alias no válido.");
-    if (state.driverProfiles[generatedKey] || FIXED_STAFF[generatedKey]) {
-      throw new Error("Ese alias ya existe.");
-    }
-
-    // El PIN se pide porque el usuario lo quiere en el formulario,
-    // pero aquí no se usa para Firebase Auth automático.
-    // Se guarda referencia mínima operativa.
-    await setDoc(doc(db, "driverProfiles", generatedKey), {
-      staffKey: generatedKey,
+    await setDoc(doc(db, "driverProfiles", alias), {
+      staffKey: alias,
       fullName,
       role: "driver",
       email,
       managerKey: "mudassar",
       managerName: "MUDASSAR",
-      colorClass: generatedKey,
+      colorClass: alias,
       colorHex,
       phone,
       defaultCarId,
@@ -2361,20 +2072,20 @@ async function saveDriverProfile(staffKey) {
     const profile = getProfileByKey(staffKey);
     if (!profile) throw new Error("Driver no encontrado.");
 
-    const fullNameInput = document.querySelector(`[data-driver-name="${staffKey}"]`);
+    const nameInput = document.querySelector(`[data-driver-name="${staffKey}"]`);
     const phoneInput = document.querySelector(`[data-driver-phone="${staffKey}"]`);
-    const defaultCarSelect = document.querySelector(`[data-driver-default-car="${staffKey}"]`);
+    const carSelect = document.querySelector(`[data-driver-default-car="${staffKey}"]`);
     const colorInput = document.querySelector(`[data-driver-color="${staffKey}"]`);
     const activeInput = document.querySelector(`[data-driver-active="${staffKey}"]`);
 
     const fullName = profile.systemUser
       ? profile.fullName
-      : fullNameInput?.value?.trim() || profile.fullName;
+      : nameInput?.value?.trim() || profile.fullName;
 
     const phone = phoneInput?.value?.trim() || "";
-    const defaultCarId = defaultCarSelect?.value || "";
+    const defaultCarId = carSelect?.value || "";
     const colorHex = colorInput?.value || profile.colorHex || "#1d4ed8";
-    const active = !!activeInput?.checked;
+    const active = activeInput ? !!activeInput.checked : profile.active !== false;
 
     await setDoc(
       doc(db, "driverProfiles", staffKey),
@@ -2410,7 +2121,7 @@ async function saveDriverProfile(staffKey) {
 }
 
 /* =========================================================
-   CARS MODULE
+   CARS
 ========================================================= */
 function renderCarsStats() {
   const cars = getAllCarsList();
@@ -2419,31 +2130,28 @@ function renderCarsStats() {
   const inactive = cars.filter((c) => c.status === "inactive").length;
 
   $("carsStats").innerHTML = [
-    statCard("Coches", String(cars.length), "Registrados"),
+    statCard("Cars", String(cars.length), "Registrados"),
     statCard("Activos", String(active), "Disponibles"),
-    statCard("Taller", String(workshop), "Fuera de servicio"),
+    statCard("Taller", String(workshop), "Servicio"),
     statCard("Inactivos", String(inactive), "No operativos"),
   ].join("");
 }
 
 function renderCarsGrid() {
-  const cars = getAllCarsList();
+  if (state.currentUser.role !== "manager") hide(document.querySelector(".car-create-card"));
+  else show(document.querySelector(".car-create-card"));
 
+  const cars = getAllCarsList();
   $("carsGrid").innerHTML = cars.length
     ? cars.map((car) => renderCarCard(car)).join("")
     : `<div class="center-empty">No hay coches todavía.</div>`;
-
-  if (state.currentUser?.role !== "manager") {
-    hide(document.querySelector(".car-create-card"));
-  } else {
-    show(document.querySelector(".car-create-card"));
-  }
 
   attachCarCardEvents();
 }
 
 function renderCarCard(car) {
-  const editable = state.currentUser?.role === "manager";
+  const editable = state.currentUser.role === "manager";
+
   const driverOptions = [
     `<option value="">Sin conductor por defecto</option>`,
     ...getSelectableDrivers().map((profile) => {
@@ -2452,99 +2160,48 @@ function renderCarCard(car) {
     }),
   ].join("");
 
+  const statusColor =
+    car.status === "active" ? "#16a34a" : car.status === "workshop" ? "#d97706" : "#6b7280";
+
   return `
     <div class="card profile-card" data-car-card="${escapeHtml(car.id)}">
-      <div class="profile-color-bar" style="background:${escapeHtml(
-        car.status === "active"
-          ? "#16a34a"
-          : car.status === "workshop"
-          ? "#d97706"
-          : "#6b7280"
-      )}"></div>
+      <div class="profile-color-bar" style="background:${escapeHtml(statusColor)}"></div>
 
       <div class="profile-card-head">
         <div class="big-avatar">${escapeHtml((car.alias || car.plate || "C").slice(0, 1).toUpperCase())}</div>
-        <div>
-          <div class="profile-name">${escapeHtml(car.alias || "Car")}</div>
-          <div class="profile-role">${escapeHtml(car.plate || "-")}</div>
-          <div class="muted">${escapeHtml(car.model || "-")}</div>
-        </div>
+        <div class="profile-name">${escapeHtml(car.alias || "Car")}</div>
+        <div class="profile-role">${escapeHtml(car.plate || "-")}</div>
+        <div class="muted">${escapeHtml(car.model || "-")}</div>
       </div>
 
       <div class="grid-2">
-        <label>
-          <span>Matrícula</span>
-          <input type="text" data-car-plate="${escapeHtml(car.id)}" value="${escapeHtml(
-    car.plate || ""
-  )}" ${editable ? "" : "disabled"} />
-        </label>
-
-        <label>
-          <span>Modelo</span>
-          <input type="text" data-car-model="${escapeHtml(car.id)}" value="${escapeHtml(
-    car.model || ""
-  )}" ${editable ? "" : "disabled"} />
-        </label>
-
-        <label>
-          <span>Alias</span>
-          <input type="text" data-car-alias="${escapeHtml(car.id)}" value="${escapeHtml(
-    car.alias || ""
-  )}" ${editable ? "" : "disabled"} />
-        </label>
-
+        <label><span>Matrícula</span><input type="text" data-car-plate="${car.id}" value="${escapeHtml(car.plate || "")}" ${editable ? "" : "disabled"} /></label>
+        <label><span>Modelo</span><input type="text" data-car-model="${car.id}" value="${escapeHtml(car.model || "")}" ${editable ? "" : "disabled"} /></label>
+        <label><span>Alias</span><input type="text" data-car-alias="${car.id}" value="${escapeHtml(car.alias || "")}" ${editable ? "" : "disabled"} /></label>
         <label>
           <span>Estado</span>
-          <select data-car-status="${escapeHtml(car.id)}" ${editable ? "" : "disabled"}>
+          <select data-car-status="${car.id}" ${editable ? "" : "disabled"}>
             <option value="active" ${car.status === "active" ? "selected" : ""}>Activo</option>
             <option value="workshop" ${car.status === "workshop" ? "selected" : ""}>Taller</option>
             <option value="inactive" ${car.status === "inactive" ? "selected" : ""}>Inactivo</option>
           </select>
         </label>
-
-        <label>
-          <span>KM actual</span>
-          <input type="number" step="0.1" min="0" data-car-km="${escapeHtml(car.id)}" value="${escapeHtml(
-    String(num(car.currentKm))
-  )}" ${editable ? "" : "disabled"} />
-        </label>
-
+        <label><span>KM actual</span><input type="number" step="0.1" min="0" data-car-km="${car.id}" value="${escapeHtml(String(num(car.currentKm)))}" ${editable ? "" : "disabled"} /></label>
         <label>
           <span>Driver por defecto</span>
-          <select data-car-driver="${escapeHtml(car.id)}" ${editable ? "" : "disabled"}>
+          <select data-car-driver="${car.id}" ${editable ? "" : "disabled"}>
             ${driverOptions}
           </select>
         </label>
-
-        <label>
-          <span>ITV</span>
-          <input type="date" data-car-itv="${escapeHtml(car.id)}" value="${escapeHtml(
-    car.itv || ""
-  )}" ${editable ? "" : "disabled"} />
-        </label>
-
-        <label>
-          <span>Seguro</span>
-          <input type="date" data-car-insurance="${escapeHtml(car.id)}" value="${escapeHtml(
-    car.insurance || ""
-  )}" ${editable ? "" : "disabled"} />
-        </label>
+        <label><span>ITV</span><input type="date" data-car-itv="${car.id}" value="${escapeHtml(car.itv || "")}" ${editable ? "" : "disabled"} /></label>
+        <label><span>Seguro</span><input type="date" data-car-insurance="${car.id}" value="${escapeHtml(car.insurance || "")}" ${editable ? "" : "disabled"} /></label>
       </div>
 
-      <label>
-        <span>Notas</span>
-        <input type="text" data-car-notes="${escapeHtml(car.id)}" value="${escapeHtml(
-    car.notes || ""
-  )}" ${editable ? "" : "disabled"} />
-      </label>
+      <label><span>Notas</span><input type="text" data-car-notes="${car.id}" value="${escapeHtml(car.notes || "")}" ${editable ? "" : "disabled"} /></label>
 
       ${
         editable
-          ? `
-        <div class="profile-actions">
-          <button class="primary-btn" type="button" data-save-car="${escapeHtml(car.id)}">Guardar coche</button>
-        </div>
-      `
+          ? `<div class="profile-actions"><button class="primary-btn" type="button" data-save-car="${car.id}">Guardar coche</button></div>`
           : ""
       }
     </div>
@@ -2554,14 +2211,13 @@ function renderCarCard(car) {
 function attachCarCardEvents() {
   document.querySelectorAll("[data-save-car]").forEach((btn) => {
     btn.onclick = async () => {
-      const carId = btn.getAttribute("data-save-car");
-      await saveCar(carId);
+      await saveCar(btn.getAttribute("data-save-car"));
     };
   });
 }
 
-async function handleCreateCar() {
-  if (state.currentUser?.role !== "manager") {
+async function createCar() {
+  if (state.currentUser.role !== "manager") {
     showToast("Solo el manager puede crear coches.");
     return;
   }
@@ -2577,7 +2233,7 @@ async function handleCreateCar() {
     const insurance = $("newCarInsurance").value;
     const notes = $("newCarNotes").value.trim();
 
-    if (!plate && !alias) throw new Error("Introduce al menos matrícula o alias.");
+    if (!plate && !alias) throw new Error("Introduce matrícula o alias.");
 
     const id = randomId("car");
 
@@ -2606,27 +2262,17 @@ async function handleCreateCar() {
 
 async function saveCar(carId) {
   try {
-    const plate = document.querySelector(`[data-car-plate="${carId}"]`)?.value?.trim() || "";
-    const model = document.querySelector(`[data-car-model="${carId}"]`)?.value?.trim() || "";
-    const alias = document.querySelector(`[data-car-alias="${carId}"]`)?.value?.trim() || "";
-    const status = document.querySelector(`[data-car-status="${carId}"]`)?.value || "active";
-    const currentKm = num(document.querySelector(`[data-car-km="${carId}"]`)?.value);
-    const defaultDriverKey =
-      document.querySelector(`[data-car-driver="${carId}"]`)?.value || "";
-    const itv = document.querySelector(`[data-car-itv="${carId}"]`)?.value || "";
-    const insurance = document.querySelector(`[data-car-insurance="${carId}"]`)?.value || "";
-    const notes = document.querySelector(`[data-car-notes="${carId}"]`)?.value?.trim() || "";
-
     await updateDoc(doc(db, "cars", carId), {
-      plate,
-      model,
-      alias,
-      status,
-      currentKm,
-      defaultDriverKey,
-      itv,
-      insurance,
-      notes,
+      plate: document.querySelector(`[data-car-plate="${carId}"]`)?.value?.trim() || "",
+      model: document.querySelector(`[data-car-model="${carId}"]`)?.value?.trim() || "",
+      alias: document.querySelector(`[data-car-alias="${carId}"]`)?.value?.trim() || "",
+      status: document.querySelector(`[data-car-status="${carId}"]`)?.value || "active",
+      currentKm: num(document.querySelector(`[data-car-km="${carId}"]`)?.value),
+      defaultDriverKey:
+        document.querySelector(`[data-car-driver="${carId}"]`)?.value || "",
+      itv: document.querySelector(`[data-car-itv="${carId}"]`)?.value || "",
+      insurance: document.querySelector(`[data-car-insurance="${carId}"]`)?.value || "",
+      notes: document.querySelector(`[data-car-notes="${carId}"]`)?.value?.trim() || "",
       updatedAt: serverTimestamp(),
     });
 
@@ -2648,14 +2294,13 @@ function openPhotoModal(staffKey) {
   state.pendingPhotoFile = null;
   revokePendingPreview();
 
-  $("photoModalTitle").textContent = `${profile.fullName} — Foto del driver`;
+  $("photoModalTitle").textContent = `${profile.fullName} — Foto`;
 
   if (profile.photoUrl) {
     $("photoPreviewImg").src = profile.photoUrl;
     show($("photoPreviewImg"));
     hide($("photoPreviewAvatar"));
   } else {
-    $("photoPreviewImg").src = "";
     hide($("photoPreviewImg"));
     $("photoPreviewAvatar").textContent = initials(profile.fullName);
     show($("photoPreviewAvatar"));
@@ -2691,7 +2336,6 @@ function handleSelectedPhotoFile(file) {
   state.pendingPhotoFile = file;
   revokePendingPreview();
   state.pendingPhotoPreviewUrl = URL.createObjectURL(file);
-
   $("photoPreviewImg").src = state.pendingPhotoPreviewUrl;
   show($("photoPreviewImg"));
   hide($("photoPreviewAvatar"));
@@ -2705,7 +2349,7 @@ async function saveDriverPhoto() {
 
   try {
     const profile = getProfileByKey(state.photoModalStaffKey);
-    if (!profile) throw new Error("Driver no encontrado.");
+    if (!profile) throw new Error("Perfil no encontrado.");
 
     if (profile.photoPath) {
       try {
@@ -2743,7 +2387,7 @@ async function removeDriverPhoto() {
 
   try {
     const profile = getProfileByKey(state.photoModalStaffKey);
-    if (!profile) throw new Error("Driver no encontrado.");
+    if (!profile) throw new Error("Perfil no encontrado.");
 
     if (profile.photoPath) {
       try {
@@ -2775,7 +2419,287 @@ function getFileExtension(filename) {
 }
 
 /* =========================================================
-   PDF EXPORT
+   CHARTS
+========================================================= */
+function destroyCharts() {
+  [state.incomeChart, state.spendingChart, state.reportChart, state.appBreakdownChart].forEach((chart) => {
+    if (chart) {
+      try {
+        chart.destroy();
+      } catch (_) {}
+    }
+  });
+
+  state.incomeChart = null;
+  state.spendingChart = null;
+  state.reportChart = null;
+  state.appBreakdownChart = null;
+}
+
+function getCssColor(variableName, fallback) {
+  const value = getComputedStyle(document.body).getPropertyValue(variableName).trim();
+  return value || fallback;
+}
+
+function hexToRgb(hex) {
+  const clean = String(hex || "").replace("#", "");
+  const full =
+    clean.length === 3
+      ? clean
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : clean.padEnd(6, "0");
+  const parsed = parseInt(full, 16);
+  return {
+    r: (parsed >> 16) & 255,
+    g: (parsed >> 8) & 255,
+    b: parsed & 255,
+  };
+}
+
+function blendColor(hex, alpha = 0.16) {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+async function ensureChartJs() {
+  if (window.Chart) return window.Chart;
+  if (state.chartLibPromise) return state.chartLibPromise;
+
+  state.chartLibPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-chartjs="true"]');
+    if (existing) {
+      existing.addEventListener("load", () => resolve(window.Chart));
+      existing.addEventListener("error", reject);
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/chart.js";
+    script.async = true;
+    script.dataset.chartjs = "true";
+    script.onload = () => resolve(window.Chart);
+    script.onerror = reject;
+    document.head.appendChild(script);
+  });
+
+  return state.chartLibPromise;
+}
+
+function buildLastSevenDaysSeries(rows) {
+  const labels = [];
+  const incomeData = [];
+  const fuelData = [];
+  const netData = [];
+
+  for (let i = 6; i >= 0; i -= 1) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    labels.push(key);
+
+    const dayRows = rows.filter((row) => row.dateKey === key);
+    const summary = summarizeRows(dayRows);
+
+    incomeData.push(summary.totalIncome);
+    fuelData.push(summary.totalFuel);
+    netData.push(summary.netProfit);
+  }
+
+  return { labels, incomeData, fuelData, netData };
+}
+
+function buildGroupedSeriesByDay(rows) {
+  const groups = groupRowsBy(rows, (row) => row.dateKey);
+  const entries = Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
+
+  return {
+    labels: entries.map(([key]) => key),
+    income: entries.map(([, groupedRows]) => summarizeRows(groupedRows).totalIncome),
+    fuel: entries.map(([, groupedRows]) => summarizeRows(groupedRows).totalFuel),
+    net: entries.map(([, groupedRows]) => summarizeRows(groupedRows).netProfit),
+  };
+}
+
+let chartQueued = false;
+
+function queueChartRender() {
+  if (chartQueued) return;
+  chartQueued = true;
+
+  Promise.resolve().then(async () => {
+    chartQueued = false;
+    await renderCharts();
+  });
+}
+
+async function renderCharts() {
+  try {
+    const ChartLib = await ensureChartJs();
+    renderDashboardCharts(ChartLib);
+    renderReportCharts(ChartLib);
+  } catch (error) {
+    console.warn("Chart.js no disponible:", error);
+  }
+}
+
+function renderDashboardCharts(ChartLib) {
+  if (!$("incomeChart") || !$("spendingChart")) return;
+
+  if (state.incomeChart) state.incomeChart.destroy();
+  if (state.spendingChart) state.spendingChart.destroy();
+
+  const series = buildLastSevenDaysSeries(state.shifts);
+
+  state.incomeChart = new ChartLib($("incomeChart"), {
+    type: "line",
+    data: {
+      labels: series.labels,
+      datasets: [
+        {
+          label: "Ingresos",
+          data: series.incomeData,
+          borderColor: getCssColor("--taximetro-text", "#1849a9"),
+          backgroundColor: blendColor(getCssColor("--taximetro-text", "#1849a9"), 0.18),
+          fill: true,
+          tension: 0.3,
+        },
+        {
+          label: "Neto",
+          data: series.netData,
+          borderColor: getCssColor("--success", "#16a34a"),
+          backgroundColor: blendColor(getCssColor("--success", "#16a34a"), 0.12),
+          fill: true,
+          tension: 0.3,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 350 },
+      plugins: { legend: { display: true, position: "bottom" } },
+      layout: { padding: 8 },
+      scales: { y: { beginAtZero: true } },
+    },
+  });
+
+  state.spendingChart = new ChartLib($("spendingChart"), {
+    type: "bar",
+    data: {
+      labels: series.labels,
+      datasets: [
+        {
+          label: "Fuel",
+          data: series.fuelData,
+          backgroundColor: blendColor(getCssColor("--warning", "#d97706"), 0.65),
+          borderRadius: 8,
+        },
+        {
+          label: "Neto",
+          data: series.netData,
+          backgroundColor: blendColor(getCssColor("--success", "#16a34a"), 0.6),
+          borderRadius: 8,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 350 },
+      plugins: { legend: { display: true, position: "bottom" } },
+      layout: { padding: 8 },
+      scales: { y: { beginAtZero: true } },
+    },
+  });
+}
+
+function renderReportCharts(ChartLib) {
+  if (!$("reportChart") || !$("appBreakdownChart")) return;
+
+  if (state.reportChart) state.reportChart.destroy();
+  if (state.appBreakdownChart) state.appBreakdownChart.destroy();
+
+  const rows = getReportRows();
+  const grouped = buildGroupedSeriesByDay(rows);
+  const summary = summarizeRows(rows);
+
+  state.reportChart = new ChartLib($("reportChart"), {
+    type: "line",
+    data: {
+      labels: grouped.labels,
+      datasets: [
+        {
+          label: "Ingresos",
+          data: grouped.income,
+          borderColor: getCssColor("--taximetro-text", "#1849a9"),
+          backgroundColor: blendColor(getCssColor("--taximetro-text", "#1849a9"), 0.16),
+          fill: true,
+          tension: 0.3,
+        },
+        {
+          label: "Fuel",
+          data: grouped.fuel,
+          borderColor: getCssColor("--warning", "#d97706"),
+          backgroundColor: blendColor(getCssColor("--warning", "#d97706"), 0.12),
+          fill: true,
+          tension: 0.3,
+        },
+        {
+          label: "Neto",
+          data: grouped.net,
+          borderColor: getCssColor("--success", "#16a34a"),
+          backgroundColor: blendColor(getCssColor("--success", "#16a34a"), 0.1),
+          fill: true,
+          tension: 0.3,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 350 },
+      plugins: { legend: { display: true, position: "bottom" } },
+      layout: { padding: 8 },
+      scales: { y: { beginAtZero: true } },
+    },
+  });
+
+  state.appBreakdownChart = new ChartLib($("appBreakdownChart"), {
+    type: "doughnut",
+    data: {
+      labels: ["Taxímetro", "Cabify", "Free Now", "Uber"],
+      datasets: [
+        {
+          data: [
+            summary.totalTaximetro,
+            summary.totalCabify,
+            summary.totalFreeNow,
+            summary.totalUber,
+          ],
+          backgroundColor: [
+            blendColor(getCssColor("--taximetro-text", "#1849a9"), 0.75),
+            blendColor(getCssColor("--cabify-text", "#067647"), 0.75),
+            blendColor(getCssColor("--freenow-text", "#b54708"), 0.75),
+            blendColor(getCssColor("--uber-text", "#111827"), 0.75),
+          ],
+          borderWidth: 0,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 350 },
+      plugins: { legend: { display: true, position: "bottom" } },
+      layout: { padding: 8 },
+    },
+  });
+}
+
+/* =========================================================
+   PDF
 ========================================================= */
 async function exportCurrentReportPdf() {
   try {
@@ -2783,9 +2707,9 @@ async function exportCurrentReportPdf() {
     const summary = summarizeRows(rows);
     const range = $("reportRange").value;
     const driverKey =
-      state.currentUser?.role === "manager"
+      state.currentUser.role === "manager"
         ? $("reportDriverFilter").value
-        : state.currentUser?.staffKey || "all";
+        : state.currentUser.staffKey;
     const carFilter = $("reportCarFilter").value.trim();
     const selectedProfile =
       driverKey && driverKey !== "all" ? getProfileByKey(driverKey) : null;
@@ -2881,8 +2805,7 @@ async function exportCurrentReportPdf() {
     y = drawPdfSectionTitle(pdf, "TURNOS INCLUIDOS", page.margin, y);
     y = drawPdfShiftTable(pdf, rows, page.margin, y, page);
 
-    const reportLabel = selectedProfile ? selectedProfile.fullName : "GLOBAL";
-    const fileName = `taxi-report-${reportLabel}-${range}-${todayISO()}.pdf`;
+    const fileName = `taxi-report-${selectedProfile ? selectedProfile.fullName : "GLOBAL"}-${range}-${todayISO()}.pdf`;
     pdf.save(fileName);
 
     showToast("PDF exportado.");
@@ -2985,21 +2908,22 @@ function drawPdfAvatarCircle(pdf, profile, cx, cy, r) {
 
 function drawPdfShiftTable(pdf, rows, x, y, page) {
   const headers = ["Fecha", "Driver", "Coche", "KM", "Ingreso", "Fuel", "Spend", "Neto"];
-  const colWidths = [24, 28, 30, 16, 24, 18, 22, 20];
-  const lineHeight = 7;
-  const startX = x;
+  const widths = [24, 28, 30, 16, 24, 18, 22, 20];
+  const lineH = 7;
 
   function drawHeader() {
-    let cursor = startX;
+    let cursor = x;
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(9);
-    headers.forEach((header, index) => {
+
+    headers.forEach((header, idx) => {
       pdf.setDrawColor(220);
-      pdf.rect(cursor, y, colWidths[index], lineHeight);
+      pdf.rect(cursor, y, widths[idx], lineH);
       pdf.text(header, cursor + 2, y + 4.5);
-      cursor += colWidths[index];
+      cursor += widths[idx];
     });
-    y += lineHeight;
+
+    y += lineH;
   }
 
   drawHeader();
@@ -3026,17 +2950,15 @@ function drawPdfShiftTable(pdf, rows, x, y, page) {
       money(row.netProfit),
     ];
 
-    let cursor = startX;
-    cells.forEach((cell, index) => {
+    let cursor = x;
+    cells.forEach((cell, idx) => {
       pdf.setDrawColor(230);
-      pdf.rect(cursor, y, colWidths[index], lineHeight);
-      pdf.text(String(cell), cursor + 2, y + 4.5, {
-        maxWidth: colWidths[index] - 4,
-      });
-      cursor += colWidths[index];
+      pdf.rect(cursor, y, widths[idx], lineH);
+      pdf.text(String(cell), cursor + 2, y + 4.5, { maxWidth: widths[idx] - 4 });
+      cursor += widths[idx];
     });
 
-    y += lineHeight;
+    y += lineH;
   });
 
   return y;
@@ -3047,8 +2969,7 @@ async function imageUrlToDataUrl(url) {
     const response = await fetch(url);
     const blob = await response.blob();
     return await blobToDataUrl(blob);
-  } catch (error) {
-    console.warn("No se pudo cargar imagen para PDF:", error);
+  } catch {
     return "";
   }
 }
@@ -3061,15 +2982,3 @@ function blobToDataUrl(blob) {
     reader.readAsDataURL(blob);
   });
 }
-
-/* =========================================================
-   INITIAL EMPTY RENDERS
-========================================================= */
-renderShiftPreview();
-renderDashboard();
-renderHistoryTable();
-renderReports();
-renderDriversStats();
-renderDriversGrid();
-renderCarsStats();
-renderCarsGrid();
