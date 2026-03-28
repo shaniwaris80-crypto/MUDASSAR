@@ -1,27 +1,34 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
+import {
+  initializeApp,
+  getApps,
+} from "https://www.gstatic.com/firebasejs/12.11.0/firebase-app.js";
+
 import {
   getAuth,
   onAuthStateChanged,
   signInWithEmailAndPassword,
-  signOut,c
+  signOut,
   setPersistence,
   browserLocalPersistence,
+  createUserWithEmailAndPassword,
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+
 import {
   getFirestore,
   collection,
   doc,
   setDoc,
   getDoc,
+  getDocs,
   addDoc,
   updateDoc,
   query,
   where,
   onSnapshot,
   serverTimestamp,
-  getDocs,
-  limit,
+  deleteDoc,
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
+
 import {
   getStorage,
   ref as storageRef,
@@ -30,6 +37,9 @@ import {
   deleteObject,
 } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-storage.js";
 
+/* =========================================================
+   FIREBASE CONFIG
+========================================================= */
 const firebaseConfig = {
   apiKey: "AIzaSyCU5HPe6BgavLPG91g8P1_mPqtqaoXo8jo",
   authDomain: "mudassar-eaff1.firebaseapp.com",
@@ -40,52 +50,145 @@ const firebaseConfig = {
   measurementId: "G-TR8P3854MG",
 };
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const storage = getStorage(app);
+const PRIMARY_APP = initializeApp(firebaseConfig);
+const auth = getAuth(PRIMARY_APP);
+const db = getFirestore(PRIMARY_APP);
+const storage = getStorage(PRIMARY_APP);
+
 await setPersistence(auth, browserLocalPersistence);
 
-const FIXED_STAFF = {
-  mudassar: { staffKey: "mudassar", fullName: "MUDASSAR", email: "mudassar@fleet.app", password: "mudassar1990", pin: "1990", role: "manager", colorHex: "#1d4ed8", managerKey: "mudassar", managerName: "MUDASSAR", systemUser: true },
-  saqlain: { staffKey: "saqlain", fullName: "SAQLAIN", email: "saqlain@fleet.app", password: "saqlain1234", pin: "1234", role: "driver", colorHex: "#16a34a", managerKey: "mudassar", managerName: "MUDASSAR", systemUser: true },
-  shujaat: { staffKey: "shujaat", fullName: "SHUJAAT", email: "shujaat@fleet.app", password: "shujaat1234", pin: "1234", role: "driver", colorHex: "#ea580c", managerKey: "mudassar", managerName: "MUDASSAR", systemUser: true },
-};
-const FIXED_BY_EMAIL = Object.values(FIXED_STAFF).reduce((acc, item) => (acc[item.email] = item, acc), {});
-const HISTORY_PAGE_SIZE = 30;
-const PENDING_KEY = "taxi_pending_local_shifts_v1";
-const THEME_KEY = "taxi_theme_mode";
+/* =========================================================
+   SECONDARY AUTH APP
+   Used to create new Firebase Auth users without breaking
+   the current manager session.
+========================================================= */
+function getSecondaryAuth() {
+  const existing = getApps().find((app) => app.name === "secondary-auth-app");
+  const app = existing || initializeApp(firebaseConfig, "secondary-auth-app");
+  return getAuth(app);
+}
 
+/* =========================================================
+   STATIC INITIAL STAFF
+   These 3 are the starter accounts. New drivers/managers
+   can be created later from the Drivers module.
+========================================================= */
+const INITIAL_STAFF = {
+  mudassar: {
+    staffKey: "mudassar",
+    fullName: "MUDASSAR",
+    email: "mudassar@fleet.app",
+    legacyPassword: "mudassar1990",
+    pin: "1990",
+    role: "manager",
+    active: true,
+    authMode: "legacy",
+    managerKey: "mudassar",
+    managerName: "MUDASSAR",
+    colorHex: "#1d4ed8",
+  },
+  saqlain: {
+    staffKey: "saqlain",
+    fullName: "SAQLAIN",
+    email: "saqlain@fleet.app",
+    legacyPassword: "saqlain1234",
+    pin: "1234",
+    role: "driver",
+    active: true,
+    authMode: "legacy",
+    managerKey: "mudassar",
+    managerName: "MUDASSAR",
+    colorHex: "#16a34a",
+  },
+  shujaat: {
+    staffKey: "shujaat",
+    fullName: "SHUJAAT",
+    email: "shujaat@fleet.app",
+    legacyPassword: "shujaat1234",
+    pin: "1234",
+    role: "driver",
+    active: true,
+    authMode: "legacy",
+    managerKey: "mudassar",
+    managerName: "MUDASSAR",
+    colorHex: "#ea580c",
+  },
+};
+
+const HISTORY_PAGE_SIZE = 30;
+
+/* =========================================================
+   STATE
+========================================================= */
 const state = {
   authUser: null,
-  currentUser: null,
-  mode: "cloud",
+  currentStaffKey: "",
+  currentStaff: null,
+
+  publicProfiles: {},
   driverProfiles: {},
   cars: {},
   shifts: [],
-  historyPage: 1,
-  pendingPhotoFile: null,
-  pendingPhotoPreviewUrl: "",
-  photoModalStaffKey: null,
-  chartLibPromise: null,
-  incomeChart: null,
-  spendingChart: null,
-  reportChart: null,
-  appBreakdownChart: null,
-  unsubProfiles: null,
+
+  unsubPublicProfiles: null,
+  unsubDriverProfiles: null,
   unsubCars: null,
   unsubShifts: null,
+
+  charts: {},
+
+  historyPage: 1,
+
+  photoModalStaffKey: "",
+  pendingPhotoFile: null,
+  pendingPhotoPreviewUrl: "",
+
+  editingDriverKey: "",
+  editingCarId: "",
 };
 
+/* =========================================================
+   DOM HELPERS
+========================================================= */
 const $ = (id) => document.getElementById(id);
-const show = (el) => el?.classList.remove("hidden");
-const hide = (el) => el?.classList.add("hidden");
-const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
-const safeDiv = (a, b) => b > 0 ? a / b : 0;
-const money = (v) => `€${num(v).toFixed(2)}`;
-const todayISO = () => new Date().toISOString().slice(0, 10);
-const initials = (name) => String(name || "U").trim().split(/\s+/).slice(0, 2).map(x => x[0]?.toUpperCase() || "").join("") || "U";
-const escapeHtml = (value) => String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+
+function show(el) {
+  el?.classList.remove("hidden");
+}
+
+function hide(el) {
+  el?.classList.add("hidden");
+}
+
+function esc(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function num(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function money(value) {
+  return `€${num(value).toFixed(2)}`;
+}
+
+function safeDiv(a, b) {
+  return b > 0 ? a / b : 0;
+}
+
+function initials(name) {
+  return String(name || "U")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() || "")
+    .join("") || "U";
+}
 
 function showToast(message) {
   const toast = $("toast");
@@ -96,144 +199,560 @@ function showToast(message) {
   showToast._t = setTimeout(() => hide(toast), 2600);
 }
 
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function dateTimeLabel() {
+  return new Intl.DateTimeFormat("en-GB", {
+    dateStyle: "full",
+    timeStyle: "short",
+  }).format(new Date());
+}
+
 function formatDate(dateStr) {
   if (!dateStr) return "";
   const d = new Date(`${dateStr}T12:00:00`);
   if (Number.isNaN(d.getTime())) return dateStr;
-  return new Intl.DateTimeFormat("es-ES", { dateStyle: "medium" }).format(d);
-}
-
-function dateTimeLabel() {
-  return new Intl.DateTimeFormat("es-ES", { dateStyle: "full", timeStyle: "short" }).format(new Date());
+  return new Intl.DateTimeFormat("en-GB", { dateStyle: "medium" }).format(d);
 }
 
 function statCard(label, value, sub = "") {
-  return `<div class="stat-card"><div class="stat-label">${escapeHtml(label)}</div><div class="stat-value">${escapeHtml(value)}</div><div class="stat-sub">${escapeHtml(sub)}</div></div>`;
+  return `
+    <div class="stat-card">
+      <div class="stat-label">${esc(label)}</div>
+      <div class="stat-value">${esc(value)}</div>
+      <div class="stat-sub">${esc(sub)}</div>
+    </div>
+  `;
 }
 
-function slugify(value) {
-  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+function getCssVar(name) {
+  return getComputedStyle(document.body).getPropertyValue(name).trim();
 }
 
-function randomId(prefix = "id") { return `${prefix}-${Math.random().toString(36).slice(2, 10)}`; }
-function truncateText(text, max = 40) { const s = String(text || ""); return s.length <= max ? s : `${s.slice(0, max - 1)}…`; }
-
-function hexToRgb(hex) {
-  const clean = String(hex || "").replace("#", "");
-  const full = clean.length === 3 ? clean.split("").map(c => c + c).join("") : clean.padEnd(6, "0");
-  const parsed = parseInt(full, 16);
-  return { r: (parsed >> 16) & 255, g: (parsed >> 8) & 255, b: parsed & 255 };
-}
-function blendColor(hex, alpha = 0.14) {
-  const { r, g, b } = hexToRgb(hex);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-function getCssColor(variable, fallback) { return getComputedStyle(document.body).getPropertyValue(variable).trim() || fallback; }
-
-function applyTheme(theme) {
-  document.body.setAttribute("data-theme", theme);
-  localStorage.setItem(THEME_KEY, theme);
-  const label = theme === "light" ? "Night mode" : "Day mode";
-  if ($("themeToggleBtn")) $("themeToggleBtn").textContent = label;
-  if ($("themeToggleAuthBtn")) $("themeToggleAuthBtn").textContent = label;
-}
-(function initTheme() { applyTheme(localStorage.getItem(THEME_KEY) || "light"); })();
-$("themeToggleBtn")?.addEventListener("click", () => applyTheme((document.body.getAttribute("data-theme") || "light") === "light" ? "dark" : "light"));
-$("themeToggleAuthBtn")?.addEventListener("click", () => applyTheme((document.body.getAttribute("data-theme") || "light") === "light" ? "dark" : "light"));
-
-function cleanupSubs() {
-  if (typeof state.unsubProfiles === "function") state.unsubProfiles();
-  if (typeof state.unsubCars === "function") state.unsubCars();
-  if (typeof state.unsubShifts === "function") state.unsubShifts();
-  state.unsubProfiles = state.unsubCars = state.unsubShifts = null;
-}
-function destroyCharts() {
-  ["incomeChart","spendingChart","reportChart","appBreakdownChart"].forEach(k => {
-    if (state[k]) { try { state[k].destroy(); } catch (_) {} state[k] = null; }
-  });
-}
-function getPendingLocalShifts() { try { return JSON.parse(localStorage.getItem(PENDING_KEY) || "[]"); } catch { return []; } }
-function setPendingLocalShifts(rows) { localStorage.setItem(PENDING_KEY, JSON.stringify(rows)); updateSyncButton(); }
-function addPendingLocalShift(row) { const rows = getPendingLocalShifts(); rows.push(row); setPendingLocalShifts(rows); }
-function updateSyncButton() {
-  const btn = $("syncPendingBtn");
-  const count = getPendingLocalShifts().length;
-  if (!btn) return;
-  if (count > 0) { btn.textContent = `Sincronizar turnos locales (${count})`; show(btn); } else hide(btn);
+function normalizeStaffKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
-function buildFallbackProfileFromFixed(base) {
-  return {
-    staffKey: base.staffKey,
-    fullName: base.fullName,
-    role: base.role,
-    email: base.email,
-    managerKey: base.managerKey,
-    managerName: base.managerName,
-    colorHex: base.colorHex,
-    phone: "",
-    defaultCarId: "",
-    photoUrl: "",
-    photoPath: "",
-    active: true,
-    systemUser: true,
-    operationalOnly: false,
-  };
+function passwordFromPin(pin) {
+  return `fleet-${String(pin).trim()}`;
 }
+
+function getPublicProfile(staffKey) {
+  const a = state.publicProfiles[staffKey] || {};
+  const b = INITIAL_STAFF[staffKey] || {};
+  return Object.keys(a).length || Object.keys(b).length ? { ...b, ...a } : null;
+}
+
+function getDriverProfile(staffKey) {
+  const base = getPublicProfile(staffKey) || {};
+  const details = state.driverProfiles[staffKey] || {};
+  return Object.keys(base).length || Object.keys(details).length
+    ? { ...base, ...details }
+    : null;
+}
+
 function getAllProfiles() {
-  const merged = {};
-  Object.keys(FIXED_STAFF).forEach((k) => { merged[k] = state.driverProfiles[k] || buildFallbackProfileFromFixed(FIXED_STAFF[k]); });
-  Object.keys(state.driverProfiles).forEach((k) => { merged[k] = state.driverProfiles[k]; });
-  return merged;
-}
-function getProfileByKey(staffKey) { return getAllProfiles()[staffKey] || null; }
-function getVisibleProfiles() {
-  const all = Object.values(getAllProfiles()).filter(p => p.active !== false).sort((a, b) => a.fullName.localeCompare(b.fullName));
-  return state.currentUser?.role === "manager" ? all : all.filter(p => p.staffKey === state.currentUser?.staffKey);
-}
-function getSelectableDrivers() {
-  return Object.values(getAllProfiles()).filter(p => p.active !== false).sort((a, b) => a.fullName.localeCompare(b.fullName));
-}
-function getAllCarsList() {
-  return Object.entries(state.cars).map(([id, car]) => ({ id, ...car })).sort((a, b) => getCarLabel(a).localeCompare(getCarLabel(b)));
-}
-function getActiveCarsList() { return getAllCarsList().filter(c => c.status !== "inactive"); }
-function getCarById(carId) { return carId && state.cars[carId] ? { id: carId, ...state.cars[carId] } : null; }
-function getCarLabel(car) { return [car?.alias, car?.plate, car?.model].filter(Boolean).join(" · "); }
-function getDefaultCarLabelForDriver(staffKey) { const p = getProfileByKey(staffKey); return p?.defaultCarId ? (getCarLabel(getCarById(p.defaultCarId)) || "") : ""; }
-function getProfileImageHtml(profile, kind = "small") {
-  const photoUrl = profile?.photoUrl || "";
-  const initialsText = initials(profile?.fullName || "D");
-  const sizeClass = kind === "large" ? "profile-photo" : "mini-avatar";
-  if (photoUrl) return `<img src="${escapeHtml(photoUrl)}" alt="${escapeHtml(profile.fullName)}" class="${sizeClass}" />`;
-  return `<div class="${sizeClass} fallback">${escapeHtml(initialsText)}</div>`;
-}
-function getDriverBadgeHtml(profile) { return `<span class="driver-badge" style="background:${escapeHtml(profile.colorHex || '#1d4ed8')}">${escapeHtml(profile.fullName)}</span>`; }
-function getDriverLineHtml(profile) { return `<div class="driver-line" style="background:${escapeHtml(profile.colorHex || '#1d4ed8')}"></div>`; }
+  const keys = new Set([
+    ...Object.keys(INITIAL_STAFF),
+    ...Object.keys(state.publicProfiles),
+    ...Object.keys(state.driverProfiles),
+  ]);
 
-function setSidebarProfilePhoto() {
-  const profile = getProfileByKey(state.currentUser?.staffKey || "");
-  if (!profile) return;
-  const photo = $("sidebarPhoto");
-  const avatar = $("sidebarAvatar");
-  if (profile.photoUrl) {
-    photo.src = profile.photoUrl;
-    show(photo); hide(avatar);
-  } else {
-    hide(photo); avatar.textContent = initials(profile.fullName); show(avatar);
+  return [...keys]
+    .map((key) => getDriverProfile(key))
+    .filter(Boolean)
+    .sort((a, b) => String(a.fullName || "").localeCompare(String(b.fullName || "")));
+}
+
+function getVisibleProfiles() {
+  if (!state.currentStaff) return [];
+  if (state.currentStaff.role === "manager") {
+    return getAllProfiles();
+  }
+  const self = getDriverProfile(state.currentStaff.staffKey);
+  return self ? [self] : [];
+}
+
+function getActiveProfilesForLogin() {
+  return getAllProfiles().filter((p) => p.active !== false && p.status !== "inactive");
+}
+
+function getActiveDriversForOperations() {
+  return getAllProfiles().filter((p) => p.active !== false && p.status !== "inactive");
+}
+
+function getCurrentProfile() {
+  return state.currentStaffKey ? getDriverProfile(state.currentStaffKey) : null;
+}
+
+function getColorHex(profile) {
+  return profile?.colorHex || "#1d4ed8";
+}
+
+function buildDriverBadgeStyle(profile) {
+  return `background:${getColorHex(profile)};`;
+}
+
+function buildDriverLineStyle(profile) {
+  return `background:${getColorHex(profile)};`;
+}
+
+function buildHistoryRowStyle(profile) {
+  return `border-left:5px solid ${getColorHex(profile)};`;
+}
+
+function isManager() {
+  return state.currentStaff?.role === "manager";
+}
+
+function currentManagerKey() {
+  return state.currentStaff?.managerKey || state.currentStaff?.staffKey || "mudassar";
+}
+
+function currentManagerName() {
+  return state.currentStaff?.managerName || state.currentStaff?.fullName || "MUDASSAR";
+}
+
+function currentViewId() {
+  const open = [...document.querySelectorAll(".view")].find((v) => !v.classList.contains("hidden"));
+  return open?.id || "dashboardView";
+}
+
+function isViewVisible(id) {
+  return !$(id)?.classList.contains("hidden");
+}
+
+function buildCarLabel(car) {
+  const plate = car?.plate || "";
+  const brand = car?.brand || "";
+  const model = car?.model || "";
+  const alias = car?.alias || "";
+
+  const pieces = [
+    alias,
+    [brand, model].filter(Boolean).join(" ").trim(),
+    plate ? `(${plate})` : "",
+  ].filter(Boolean);
+
+  return pieces.join(" ").trim();
+}
+
+function getCarById(carId) {
+  return state.cars[carId] || null;
+}
+
+function getActiveCars() {
+  return Object.entries(state.cars)
+    .filter(([, car]) => car.status !== "inactive")
+    .map(([id, car]) => ({ id, ...car }))
+    .sort((a, b) => buildCarLabel(a).localeCompare(buildCarLabel(b)));
+}
+
+function revokePendingPreview() {
+  if (state.pendingPhotoPreviewUrl) {
+    URL.revokeObjectURL(state.pendingPhotoPreviewUrl);
+    state.pendingPhotoPreviewUrl = "";
   }
 }
 
-function setHeaderInfo() {
-  const profile = getProfileByKey(state.currentUser?.staffKey || "");
+function cleanupSubs() {
+  if (typeof state.unsubPublicProfiles === "function") {
+    state.unsubPublicProfiles();
+    state.unsubPublicProfiles = null;
+  }
+  if (typeof state.unsubDriverProfiles === "function") {
+    state.unsubDriverProfiles();
+    state.unsubDriverProfiles = null;
+  }
+  if (typeof state.unsubCars === "function") {
+    state.unsubCars();
+    state.unsubCars = null;
+  }
+  if (typeof state.unsubShifts === "function") {
+    state.unsubShifts();
+    state.unsubShifts = null;
+  }
+}
+
+/* =========================================================
+   THEME
+========================================================= */
+const themeKey = "fleet-theme-mode";
+
+function applyTheme(theme) {
+  document.body.setAttribute("data-theme", theme);
+  localStorage.setItem(themeKey, theme);
+
+  const text = theme === "light" ? "Night mode" : "Day mode";
+  if ($("themeToggleBtn")) $("themeToggleBtn").textContent = text;
+  if ($("themeToggleAuthBtn")) $("themeToggleAuthBtn").textContent = text;
+
+  rerenderVisibleCharts();
+}
+
+(function initTheme() {
+  const saved = localStorage.getItem(themeKey) || "light";
+  applyTheme(saved);
+})();
+
+$("themeToggleBtn")?.addEventListener("click", () => {
+  const current = document.body.getAttribute("data-theme") || "light";
+  applyTheme(current === "light" ? "dark" : "light");
+});
+
+$("themeToggleAuthBtn")?.addEventListener("click", () => {
+  const current = document.body.getAttribute("data-theme") || "light";
+  applyTheme(current === "light" ? "dark" : "light");
+});
+
+/* =========================================================
+   LOGIN PROFILES LOAD
+========================================================= */
+async function loadPublicProfilesForLogin() {
+  const merged = { ...INITIAL_STAFF };
+
+  try {
+    const snap = await getDocs(collection(db, "publicProfiles"));
+    snap.docs.forEach((d) => {
+      merged[d.id] = {
+        ...(INITIAL_STAFF[d.id] || {}),
+        ...d.data(),
+      };
+    });
+  } catch (error) {
+    console.warn("Public profiles load fallback:", error);
+  }
+
+  state.publicProfiles = merged;
+  populateLoginSelect();
+}
+
+function populateLoginSelect() {
+  const select = $("loginStaff");
+  if (!select) return;
+
+  const profiles = Object.values(state.publicProfiles || INITIAL_STAFF)
+    .filter((p) => p.active !== false && p.status !== "inactive")
+    .sort((a, b) => String(a.fullName || "").localeCompare(String(b.fullName || "")));
+
+  select.innerHTML = profiles
+    .map((p) => {
+      const roleText = p.role === "manager" ? "Manager / Driver" : "Driver";
+      return `<option value="${esc(p.staffKey)}">${esc(p.fullName)} — ${esc(roleText)}</option>`;
+    })
+    .join("");
+
+  if (!select.value && profiles[0]) {
+    select.value = profiles[0].staffKey;
+  }
+
+  updateLoginHint();
+}
+
+function updateLoginHint() {
+  const selected = getPublicProfile($("loginStaff").value) || INITIAL_STAFF[$("loginStaff").value];
+  if (!selected) return;
+
+  $("loginHint").textContent = "Enter your credentials to continue.";
+  $("loginBtn").textContent = `Sign in as ${selected.role === "manager" ? "manager" : "driver"}`;
+}
+
+$("loginStaff")?.addEventListener("change", updateLoginHint);
+
+/* =========================================================
+   LOGIN
+========================================================= */
+$("loginForm")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  const staffKey = $("loginStaff").value;
+  const pin = $("loginPin").value.trim();
+
+  const selected = getPublicProfile(staffKey) || INITIAL_STAFF[staffKey];
+  if (!selected) {
+    showToast("Invalid user.");
+    return;
+  }
+
+  if (!pin) {
+    showToast("Enter your PIN.");
+    return;
+  }
+
+  const email = selected.email;
+  const primaryAttemptPassword =
+    selected.authMode === "legacy"
+      ? selected.legacyPassword || passwordFromPin(pin)
+      : passwordFromPin(pin);
+
+  try {
+    await signInWithEmailAndPassword(auth, email, primaryAttemptPassword);
+    $("loginPin").value = "";
+    showToast("Signed in.");
+  } catch (firstError) {
+    try {
+      const fallbackPassword = passwordFromPin(pin);
+      if (fallbackPassword !== primaryAttemptPassword) {
+        await signInWithEmailAndPassword(auth, email, fallbackPassword);
+        $("loginPin").value = "";
+        showToast("Signed in.");
+        return;
+      }
+      throw firstError;
+    } catch (secondError) {
+      console.error(secondError);
+      showToast("Sign in failed. Check Firebase users, passwords or PIN.");
+    }
+  }
+});
+
+$("logoutBtn")?.addEventListener("click", async () => {
+  try {
+    cleanupSubs();
+    destroyAllCharts();
+    await signOut(auth);
+    state.authUser = null;
+    state.currentStaff = null;
+    state.currentStaffKey = "";
+    $("loginPin").value = "";
+    await loadPublicProfilesForLogin();
+    show($("authView"));
+    hide($("appView"));
+    showToast("Logged out.");
+  } catch (error) {
+    console.error(error);
+    showToast("Logout failed.");
+  }
+});
+
+/* =========================================================
+   AUTH STATE
+========================================================= */
+onAuthStateChanged(auth, async (user) => {
+  cleanupSubs();
+
+  if (!user) {
+    return;
+  }
+
+  const matched =
+    Object.values(state.publicProfiles).find((p) => p.email === user.email) ||
+    Object.values(INITIAL_STAFF).find((p) => p.email === user.email);
+
+  if (!matched) {
+    showToast("This account is not allowed in this app.");
+    await signOut(auth);
+    return;
+  }
+
+  state.authUser = user;
+  state.currentStaffKey = matched.staffKey;
+  state.currentStaff = { ...matched };
+
+  await ensureCurrentUserDocs();
+  attachNav();
+
+  hide($("authView"));
+  show($("appView"));
+
+  subscribePublicProfiles();
+  subscribeDriverProfiles();
+  subscribeCars();
+  subscribeShifts();
+
+  setHeaderProfile();
+  populateOperationalSelects();
+  setShiftDefaults();
+  renderShiftPreview();
+  renderDriversView();
+  renderCarsView();
+  rerenderVisibleView();
+});
+
+/* =========================================================
+   ENSURE STARTER DOCS
+========================================================= */
+async function ensureCurrentUserDocs() {
+  const selfProfile = getPublicProfile(state.currentStaffKey) || INITIAL_STAFF[state.currentStaffKey];
+  if (!selfProfile) return;
+
+  if (isManager()) {
+    for (const [staffKey, base] of Object.entries(INITIAL_STAFF)) {
+      await ensurePublicProfileDoc(staffKey, base);
+      await ensureDriverProfileDoc(staffKey, base);
+    }
+  } else {
+    await ensurePublicProfileDoc(selfProfile.staffKey, selfProfile);
+    await ensureDriverProfileDoc(selfProfile.staffKey, selfProfile);
+  }
+}
+
+async function ensurePublicProfileDoc(staffKey, base) {
+  const ref = doc(db, "publicProfiles", staffKey);
+  const snap = await getDoc(ref);
+
+  if (!snap.exists()) {
+    await setDoc(ref, {
+      staffKey: base.staffKey,
+      fullName: base.fullName,
+      email: base.email,
+      role: base.role,
+      active: base.active !== false,
+      status: base.status || "active",
+      authMode: base.authMode || "legacy",
+      managerKey: base.managerKey || base.staffKey,
+      managerName: base.managerName || base.fullName,
+      colorHex: base.colorHex || "#1d4ed8",
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  }
+}
+
+async function ensureDriverProfileDoc(staffKey, base) {
+  const ref = doc(db, "driverProfiles", staffKey);
+  const snap = await getDoc(ref);
+
+  if (!snap.exists()) {
+    await setDoc(ref, {
+      staffKey: base.staffKey,
+      fullName: base.fullName,
+      email: base.email,
+      role: base.role,
+      managerKey: base.managerKey || base.staffKey,
+      managerName: base.managerName || base.fullName,
+      colorHex: base.colorHex || "#1d4ed8",
+      phone: "",
+      defaultCarId: "",
+      photoUrl: "",
+      photoPath: "",
+      status: "active",
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  }
+}
+
+/* =========================================================
+   SUBSCRIPTIONS
+========================================================= */
+function subscribePublicProfiles() {
+  state.unsubPublicProfiles = onSnapshot(collection(db, "publicProfiles"), (snap) => {
+    const next = { ...INITIAL_STAFF };
+    snap.docs.forEach((d) => {
+      next[d.id] = {
+        ...(INITIAL_STAFF[d.id] || {}),
+        ...d.data(),
+      };
+    });
+    state.publicProfiles = next;
+    populateLoginSelect();
+    renderDriversView();
+    populateOperationalSelects();
+    if (state.currentStaffKey) {
+      const current = getDriverProfile(state.currentStaffKey);
+      if (current) state.currentStaff = current;
+    }
+    setHeaderProfile();
+    renderHistoryTable();
+    renderReports();
+    renderDashboard();
+  });
+}
+
+function subscribeDriverProfiles() {
+  state.unsubDriverProfiles = onSnapshot(collection(db, "driverProfiles"), (snap) => {
+    const next = {};
+    snap.docs.forEach((d) => {
+      next[d.id] = d.data();
+    });
+    state.driverProfiles = next;
+    if (state.currentStaffKey) {
+      const current = getDriverProfile(state.currentStaffKey);
+      if (current) state.currentStaff = current;
+    }
+    setHeaderProfile();
+    populateOperationalSelects();
+    renderDriversView();
+    renderHistoryTable();
+    renderDashboard();
+    renderReports();
+  });
+}
+
+function subscribeCars() {
+  state.unsubCars = onSnapshot(collection(db, "cars"), (snap) => {
+    const next = {};
+    snap.docs.forEach((d) => {
+      next[d.id] = d.data();
+    });
+    state.cars = next;
+    populateOperationalSelects();
+    renderCarsView();
+    renderDriversView();
+    renderHistoryTable();
+    renderReports();
+    setHeaderProfile();
+  });
+}
+
+function subscribeShifts() {
+  const shiftsRef = collection(db, "shifts");
+
+  if (isManager()) {
+    const q = query(shiftsRef, where("managerKey", "==", state.currentStaff.staffKey));
+    state.unsubShifts = onSnapshot(q, (snap) => {
+      state.shifts = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort(sortShifts);
+      renderDashboard();
+      renderHistoryTable();
+      renderReports();
+    });
+    return;
+  }
+
+  const q = query(shiftsRef, where("driverKey", "==", state.currentStaff.staffKey));
+  state.unsubShifts = onSnapshot(q, (snap) => {
+    state.shifts = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort(sortShifts);
+    renderDashboard();
+    renderHistoryTable();
+    renderReports();
+  });
+}
+
+function sortShifts(a, b) {
+  const da = String(a.dateKey || "");
+  const db = String(b.dateKey || "");
+  if (da !== db) return db.localeCompare(da);
+
+  const ca = a.createdAt?.seconds || 0;
+  const cb = b.createdAt?.seconds || 0;
+  return cb - ca;
+}
+
+/* =========================================================
+   SIDEBAR / VIEW
+========================================================= */
+function setHeaderProfile() {
+  const profile = getCurrentProfile();
   if (!profile) return;
-  $("sidebarName").textContent = profile.fullName;
+
+  $("sidebarName").textContent = profile.fullName || "";
   $("sidebarRole").textContent = profile.role === "manager" ? "Manager / Driver" : "Driver";
-  $("sidebarVehicle").textContent = getDefaultCarLabelForDriver(profile.staffKey);
-  $("topbarDate").textContent = dateTimeLabel();
-  $("sessionBadge").textContent = state.mode === "cloud" ? "Live" : "Local";
-  $("sessionModeText").textContent = state.mode === "cloud" ? "Taxi dashboard" : "Modo local de emergencia";
-  setSidebarProfilePhoto();
+  $("sidebarVehicle").textContent = getDefaultCarLabel(profile) || "No default car";
+
+  setCirclePhoto(
+    $("sidebarAvatarImg"),
+    $("sidebarAvatar"),
+    profile.photoUrl,
+    profile.fullName
+  );
 }
 
 function attachNav() {
@@ -245,830 +764,2328 @@ function attachNav() {
     };
   });
 }
+
 function openView(viewId) {
   document.querySelectorAll(".view").forEach((view) => hide(view));
   show($(viewId));
-  const titleMap = {
-    dashboardView: ["Dashboard", "Resumen en vivo de ingresos, combustible, gastos y neto"],
-    shiftView: ["Nuevo turno", "Manager puede guardar un turno en nombre de cualquier conductor"],
-    historyView: ["Historial", "Buscar por fecha, driver o coche · 30 por página"],
-    reportsView: ["Reportes", "Diario, semanal, mensual y anual con gráficos y PDF"],
-    driversView: ["Drivers", "Crear, editar, activar, cambiar foto y color"],
-    carsView: ["Cars", "Ver existentes, añadir nuevos y editar datos"],
+
+  const map = {
+    dashboardView: ["Dashboard", "Live overview of income, fuel, spending and net"],
+    shiftView: ["New Shift", "Manager can create full shift details on behalf of any driver"],
+    historyView: ["Shift History", "Search by date, driver or car · 30 rows per page"],
+    reportsView: ["Reports", "Daily, weekly, monthly and yearly analytics with export PDFs"],
+    driversView: ["Drivers", "Create new drivers, edit existing ones and manage photos"],
+    carsView: ["Cars", "View existing cars, add new ones and assign defaults"],
   };
-  $("pageTitle").textContent = titleMap[viewId][0];
-  $("pageSubtitle").textContent = titleMap[viewId][1];
+
+  $("pageTitle").textContent = map[viewId][0];
+  $("pageSubtitle").textContent = map[viewId][1];
+
+  rerenderVisibleView();
 }
 
-function updateLoginMode() {
-  $("loginHint").textContent = "Introduce tus credenciales para continuar.";
-  $("loginPin").value = "";
-}
-$("loginStaff")?.addEventListener("change", updateLoginMode);
-updateLoginMode();
+function rerenderVisibleView() {
+  const view = currentViewId();
 
-$("loginForm")?.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const selectedKey = $("loginStaff").value;
-  const selected = FIXED_STAFF[selectedKey];
-  const pin = $("loginPin").value.trim();
-  if (!selected) return showToast("Usuario no válido.");
-  if (pin !== selected.pin) return showToast("PIN incorrecto.");
-  try {
-    await signInWithEmailAndPassword(auth, selected.email, selected.password);
-    $("loginPin").value = "";
-    showToast("Sesión iniciada.");
-  } catch (error) {
-    console.error(error);
-    showToast("No se pudo iniciar sesión. Revisa Firebase Auth.");
-  }
-});
-
-$("quickDriverModeBtn")?.addEventListener("click", async () => {
-  const staffKey = $("quickDriverSelect").value;
-  const base = FIXED_STAFF[staffKey] || buildFallbackProfileFromFixed({ staffKey, fullName: staffKey.toUpperCase(), role: "driver", colorHex: "#16a34a", managerKey: "mudassar", managerName: "MUDASSAR" });
-  cleanupSubs();
-  destroyCharts();
-  state.authUser = null;
-  state.currentUser = { ...base };
-  state.mode = "local";
-  await ensureInitialFixedProfiles();
-  await ensureInitialManagerCarSeed();
-  bootApp();
-  showToast("Modo local de emergencia activado.");
-});
-
-$("logoutBtn")?.addEventListener("click", async () => {
-  try {
-    cleanupSubs(); destroyCharts();
-    state.mode = "cloud";
-    if (auth.currentUser) await signOut(auth);
-    state.authUser = null; state.currentUser = null; state.driverProfiles = {}; state.cars = {}; state.shifts = []; state.historyPage = 1;
-    show($("authView")); hide($("appView"));
-    updateSyncButton();
-    showToast("Sesión cerrada.");
-  } catch (error) {
-    console.error(error);
-    showToast("No se pudo cerrar sesión.");
-  }
-});
-
-onAuthStateChanged(auth, async (user) => {
-  if (state.mode === "local") return;
-  cleanupSubs();
-  if (!user) {
-    state.authUser = null; state.currentUser = null; state.driverProfiles = {}; state.cars = {}; state.shifts = []; state.historyPage = 1;
-    show($("authView")); hide($("appView")); destroyCharts(); updateSyncButton();
-    return;
-  }
-
-  const fixedUser = FIXED_BY_EMAIL[user.email || ""];
-  if (!fixedUser) {
-    showToast("Cuenta no autorizada.");
-    await signOut(auth);
-    return;
-  }
-
-  state.authUser = user;
-  state.currentUser = fixedUser;
-  state.mode = "cloud";
-  try {
-    await ensureInitialFixedProfiles();
-    await ensureInitialManagerCarSeed();
-    bootApp();
-  } catch (error) {
-    console.error(error);
-    showToast("Error cargando la aplicación.");
-  }
-});
-
-async function ensureInitialFixedProfiles() {
-  for (const key of Object.keys(FIXED_STAFF)) {
-    const base = FIXED_STAFF[key];
-    const ref = doc(db, "driverProfiles", key);
-    const snap = await getDoc(ref);
-    const prev = snap.exists() ? snap.data() : {};
-    await setDoc(ref, {
-      staffKey: base.staffKey,
-      fullName: base.fullName,
-      role: base.role,
-      email: base.email,
-      managerKey: base.managerKey,
-      managerName: base.managerName,
-      colorHex: prev.colorHex || base.colorHex,
-      phone: prev.phone || "",
-      defaultCarId: prev.defaultCarId || "",
-      photoUrl: prev.photoUrl || "",
-      photoPath: prev.photoPath || "",
-      active: prev.active !== false,
-      systemUser: true,
-      operationalOnly: false,
-      requestedLoginEmail: base.email,
-      createdAt: prev.createdAt || serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    }, { merge: true });
+  if (view === "dashboardView") {
+    renderDashboard();
+  } else if (view === "shiftView") {
+    renderShiftPreview();
+  } else if (view === "historyView") {
+    renderHistoryTable();
+  } else if (view === "reportsView") {
+    renderReports();
+  } else if (view === "driversView") {
+    renderDriversView();
+  } else if (view === "carsView") {
+    renderCarsView();
   }
 }
 
-async function ensureInitialManagerCarSeed() {
-  if (state.currentUser?.role !== "manager" && state.mode !== "local") return;
-  const seedCars = [
-    { id: "car-1", plate: "0001-AAA", model: "Toyota Prius", alias: "Taxi 1", status: "active", currentKm: 0, defaultDriverKey: "mudassar", itv: "", insurance: "", notes: "" },
-    { id: "car-2", plate: "0002-BBB", model: "Skoda Octavia", alias: "Taxi 2", status: "active", currentKm: 0, defaultDriverKey: "saqlain", itv: "", insurance: "", notes: "" },
+function rerenderVisibleCharts() {
+  if (isViewVisible("dashboardView")) renderDashboardCharts();
+  if (isViewVisible("reportsView")) renderReportCharts();
+}
+
+/* =========================================================
+   PHOTO HELPERS
+========================================================= */
+function setCirclePhoto(imgEl, fallbackEl, photoUrl, fullName) {
+  if (photoUrl) {
+    imgEl.src = photoUrl;
+    show(imgEl);
+    hide(fallbackEl);
+  } else {
+    imgEl.src = "";
+    hide(imgEl);
+    fallbackEl.textContent = initials(fullName);
+    show(fallbackEl);
+  }
+}
+
+function photoHtml(profile, small = false) {
+  const imgClass = small ? "circle-photo-small" : "circle-photo";
+  const fallbackClass = small ? "circle-fallback-small" : "circle-fallback";
+
+  if (profile?.photoUrl) {
+    return `<img src="${esc(profile.photoUrl)}" alt="${esc(profile.fullName)}" class="${imgClass}" />`;
+  }
+
+  return `<div class="${fallbackClass}">${esc(initials(profile?.fullName || "D"))}</div>`;
+}
+
+/* =========================================================
+   OPERATIONAL SELECTS
+========================================================= */
+function populateOperationalSelects() {
+  populateShiftDriverSelect();
+  populateShiftCarsSelect();
+  populateHistoryDriverSelect();
+  populateReportDriverSelect();
+  populateDriverDefaultCarSelect();
+  populateCarDefaultDriverSelect();
+}
+
+function populateShiftDriverSelect() {
+  const select = $("sfDriverKey");
+  const profiles = getActiveDriversForOperations();
+
+  if (isManager()) {
+    show($("driverSelectWrap"));
+    select.innerHTML = profiles
+      .map((profile) => `<option value="${esc(profile.staffKey)}">${esc(profile.fullName)}</option>`)
+      .join("");
+    if (!select.value && profiles[0]) {
+      select.value = profiles[0].staffKey;
+    }
+  } else {
+    hide($("driverSelectWrap"));
+    select.innerHTML = "";
+  }
+}
+
+function populateShiftCarsSelect() {
+  const select = $("sfCarId");
+  if (!select) return;
+
+  const cars = getActiveCars();
+  const options = [
+    `<option value="">Select car</option>`,
+    ...cars.map((car) => `<option value="${esc(car.id)}">${esc(buildCarLabel(car))}</option>`),
   ];
-  for (const car of seedCars) {
-    const ref = doc(db, "cars", car.id);
-    const snap = await getDoc(ref);
-    if (!snap.exists()) await setDoc(ref, { ...car, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-  }
+  select.innerHTML = options.join("");
+
+  applyDriverDefaultCarToShift();
 }
 
-function bootApp() {
-  hide($("authView")); show($("appView"));
-  setHeaderInfo(); attachNav(); bindGeneralEvents();
-  if (state.mode === "cloud") {
-    subscribeDriverProfiles(); subscribeCars(); subscribeShifts();
-  } else {
-    bootstrapLocalModeState();
-  }
-  renderShiftSelectors(); setShiftDefaults(); renderShiftPreview(); renderAllViews(); updateSyncButton();
-}
+function populateHistoryDriverSelect() {
+  const select = $("historyDriverFilter");
+  if (!select) return;
 
-let eventsBound = false;
-function bindGeneralEvents() {
-  if (eventsBound) return; eventsBound = true;
-  ["sfDate","sfDriverKey","sfCarId","sfKm","sfStartTime","sfEndTime","sfNotes","sfTaximetroCash","sfTaximetroCard","sfCabifyCash","sfCabifyApp","sfFreeNowCash","sfFreeNowApp","sfUberApp","sfFuel1","sfFuel2","sfFuel3","sfFuelOther","sfParking","sfTolls","sfCleaning","sfOtherExpenses","sfWash","sfOil","sfTyres","sfWorkshop","sfItv","sfOtherMaintenance"].forEach((id) => {
-    $(id)?.addEventListener("input", renderShiftPreview);
-    $(id)?.addEventListener("change", renderShiftPreview);
-  });
-  $("sfDriverKey")?.addEventListener("change", () => { applyDriverDefaultCar(); renderShiftPreview(); });
-  $("resetShiftBtn")?.addEventListener("click", () => { $("shiftForm").reset(); setShiftDefaults(); renderShiftPreview(); });
-  $("shiftForm")?.addEventListener("submit", handleSaveShift);
-  $("historySearch")?.addEventListener("input", resetAndRenderHistory);
-  $("historyDateFilter")?.addEventListener("change", resetAndRenderHistory);
-  $("historyDriverFilter")?.addEventListener("change", resetAndRenderHistory);
-  $("historyCarFilter")?.addEventListener("input", resetAndRenderHistory);
-  $("clearHistoryFiltersBtn")?.addEventListener("click", () => { $("historySearch").value = ""; $("historyDateFilter").value = ""; $("historyDriverFilter").value = "all"; $("historyCarFilter").value = ""; state.historyPage = 1; renderHistoryTable(); });
-  $("historyPrevBtn")?.addEventListener("click", () => { state.historyPage = Math.max(1, state.historyPage - 1); renderHistoryTable(); });
-  $("historyNextBtn")?.addEventListener("click", () => { state.historyPage = Math.min(getHistoryTotalPages(), state.historyPage + 1); renderHistoryTable(); });
-  $("reportRange")?.addEventListener("change", renderReports);
-  $("reportDriverFilter")?.addEventListener("change", renderReports);
-  $("reportCarFilter")?.addEventListener("input", renderReports);
-  $("exportReportPdfBtn")?.addEventListener("click", exportCurrentReportPdf);
-  $("createDriverBtn")?.addEventListener("click", handleCreateDriver);
-  $("createCarBtn")?.addEventListener("click", handleCreateCar);
-  $("syncPendingBtn")?.addEventListener("click", syncPendingLocalShifts);
-  $("closePhotoModalBtn")?.addEventListener("click", closePhotoModal);
-  document.querySelectorAll("[data-close-photo-modal]").forEach((el) => el.addEventListener("click", closePhotoModal));
-  $("driverPhotoUploadInput")?.addEventListener("change", (e) => handleSelectedPhotoFile(e.target.files?.[0] || null));
-  $("driverPhotoCameraInput")?.addEventListener("change", (e) => handleSelectedPhotoFile(e.target.files?.[0] || null));
-  $("saveDriverPhotoBtn")?.addEventListener("click", saveDriverPhoto);
-  $("removeDriverPhotoBtn")?.addEventListener("click", removeDriverPhoto);
-}
-
-function bootstrapLocalModeState() {
-  // Local mode uses cloud profiles/cars if previously loaded, otherwise fixed ones and local cars.
-  if (!Object.keys(state.driverProfiles).length) {
-    Object.keys(FIXED_STAFF).forEach((k) => { state.driverProfiles[k] = buildFallbackProfileFromFixed(FIXED_STAFF[k]); });
-  }
-  if (!Object.keys(state.cars).length) {
-    state.cars = {
-      "car-1": { plate: "0001-AAA", model: "Toyota Prius", alias: "Taxi 1", status: "active", currentKm: 0, defaultDriverKey: "mudassar", itv: "", insurance: "", notes: "" },
-      "car-2": { plate: "0002-BBB", model: "Skoda Octavia", alias: "Taxi 2", status: "active", currentKm: 0, defaultDriverKey: "saqlain", itv: "", insurance: "", notes: "" },
-    };
-  }
-  const localRows = getPendingLocalShifts().map((x) => ({ ...x, id: x.id || randomId("local") }));
-  state.shifts = localRows.sort(sortShiftsNewestFirst);
-}
-
-function subscribeDriverProfiles() {
-  if (state.currentUser?.role === "manager") {
-    state.unsubProfiles = onSnapshot(collection(db, "driverProfiles"), (snap) => {
-      const next = {};
-      snap.docs.forEach((d) => { next[d.id] = d.data(); });
-      state.driverProfiles = next; afterProfilesOrCarsChange();
-    });
-  } else {
-    state.unsubProfiles = onSnapshot(doc(db, "driverProfiles", state.currentUser.staffKey), (snap) => {
-      const next = {};
-      if (snap.exists()) next[snap.id] = snap.data();
-      state.driverProfiles = next; afterProfilesOrCarsChange();
-    });
-  }
-}
-function subscribeCars() {
-  state.unsubCars = onSnapshot(collection(db, "cars"), (snap) => {
-    const next = {};
-    snap.docs.forEach((d) => { next[d.id] = d.data(); });
-    state.cars = next; afterProfilesOrCarsChange();
-  });
-}
-function subscribeShifts() {
-  const shiftsRef = collection(db, "shifts");
-  if (state.currentUser?.role === "manager") {
-    state.unsubShifts = onSnapshot(query(shiftsRef, where("managerKey", "==", "mudassar"), limit(500)), (snap) => {
-      state.shifts = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort(sortShiftsNewestFirst); afterShiftsChange();
-    });
-  } else {
-    state.unsubShifts = onSnapshot(query(shiftsRef, where("driverKey", "==", state.currentUser.staffKey), limit(500)), (snap) => {
-      state.shifts = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort(sortShiftsNewestFirst); afterShiftsChange();
-    });
-  }
-}
-function afterProfilesOrCarsChange() {
-  setHeaderInfo(); renderShiftSelectors(); renderDriversStats(); renderDriversGrid(); renderCarsStats(); renderCarsGrid(); renderHistoryDriverFilter(); renderReportDriverFilter(); renderNewDriverCarOptions(); renderNewCarDriverOptions(); renderShiftPreview(); renderReports(); renderHistoryTable();
-}
-function afterShiftsChange() { renderDashboard(); renderHistoryTable(); renderReports(); }
-function renderAllViews() { renderDashboard(); renderHistoryTable(); renderReports(); renderDriversStats(); renderDriversGrid(); renderCarsStats(); renderCarsGrid(); renderHistoryDriverFilter(); renderReportDriverFilter(); renderNewDriverCarOptions(); renderNewCarDriverOptions(); }
-
-function renderShiftSelectors() {
-  if (state.currentUser?.role === "manager") show($("driverSelectWrap")); else hide($("driverSelectWrap"));
-  $("sfDriverKey").innerHTML = getSelectableDrivers().map((p) => `<option value="${p.staffKey}">${escapeHtml(p.fullName)}</option>`).join("");
-  $("sfCarId").innerHTML = [`<option value="">Seleccionar coche</option>`, ...getActiveCarsList().map((c) => `<option value="${c.id}">${escapeHtml(getCarLabel(c))}</option>`)].join("");
-  if (state.currentUser?.role === "manager") {
-    if (!$("sfDriverKey").value) $("sfDriverKey").value = state.currentUser.staffKey;
-    applyDriverDefaultCar();
-  } else {
-    const own = getProfileByKey(state.currentUser?.staffKey || "");
-    $("sfCarId").value = own?.defaultCarId || "";
-  }
-}
-function renderHistoryDriverFilter() {
-  if (state.currentUser?.role !== "manager") {
-    $("historyDriverFilter").innerHTML = `<option value="${state.currentUser.staffKey}">${escapeHtml(state.currentUser.fullName)}</option>`;
+  if (!isManager()) {
+    select.innerHTML = `<option value="${esc(state.currentStaff.staffKey)}">${esc(
+      state.currentStaff.fullName
+    )}</option>`;
     return;
   }
-  $("historyDriverFilter").innerHTML = [`<option value="all">All</option>`, ...getSelectableDrivers().map((p) => `<option value="${p.staffKey}">${escapeHtml(p.fullName)}</option>`)].join("");
-}
-function renderReportDriverFilter() {
-  if (state.currentUser?.role !== "manager") {
-    $("reportDriverFilter").innerHTML = `<option value="${state.currentUser.staffKey}">${escapeHtml(state.currentUser.fullName)}</option>`;
-    return;
-  }
-  $("reportDriverFilter").innerHTML = [`<option value="all">All</option>`, ...getSelectableDrivers().map((p) => `<option value="${p.staffKey}">${escapeHtml(p.fullName)}</option>`)].join("");
-}
-function renderNewDriverCarOptions() {
-  $("newDriverCarId").innerHTML = [`<option value="">Sin coche por defecto</option>`, ...getActiveCarsList().map((c) => `<option value="${c.id}">${escapeHtml(getCarLabel(c))}</option>`)].join("");
-}
-function renderNewCarDriverOptions() {
-  $("newCarDriverKey").innerHTML = [`<option value="">Sin conductor por defecto</option>`, ...getSelectableDrivers().map((p) => `<option value="${p.staffKey}">${escapeHtml(p.fullName)}</option>`)].join("");
-}
-function applyDriverDefaultCar() {
-  const selected = getProfileByKey($("sfDriverKey").value);
-  $("sfCarId").value = selected?.defaultCarId || "";
+
+  const options = [
+    `<option value="all">All</option>`,
+    ...getActiveDriversForOperations().map(
+      (profile) => `<option value="${esc(profile.staffKey)}">${esc(profile.fullName)}</option>`
+    ),
+  ];
+  select.innerHTML = options.join("");
 }
 
+function populateReportDriverSelect() {
+  const select = $("reportDriverFilter");
+  if (!select) return;
+
+  if (!isManager()) {
+    select.innerHTML = `<option value="${esc(state.currentStaff.staffKey)}">${esc(
+      state.currentStaff.fullName
+    )}</option>`;
+    return;
+  }
+
+  const options = [
+    `<option value="all">All</option>`,
+    ...getActiveDriversForOperations().map(
+      (profile) => `<option value="${esc(profile.staffKey)}">${esc(profile.fullName)}</option>`
+    ),
+  ];
+  select.innerHTML = options.join("");
+}
+
+function populateDriverDefaultCarSelect() {
+  const select = $("driverDefaultCarInput");
+  if (!select) return;
+
+  const cars = getActiveCars();
+  select.innerHTML = [
+    `<option value="">No default car</option>`,
+    ...cars.map((car) => `<option value="${esc(car.id)}">${esc(buildCarLabel(car))}</option>`),
+  ].join("");
+}
+
+function populateCarDefaultDriverSelect() {
+  const select = $("carDefaultDriverInput");
+  if (!select) return;
+
+  const profiles = getActiveDriversForOperations();
+  select.innerHTML = [
+    `<option value="">No default driver</option>`,
+    ...profiles.map(
+      (profile) => `<option value="${esc(profile.staffKey)}">${esc(profile.fullName)}</option>`
+    ),
+  ].join("");
+}
+
+function getDefaultCarLabel(profile) {
+  if (!profile?.defaultCarId) return "";
+  const car = getCarById(profile.defaultCarId);
+  return car ? buildCarLabel({ id: profile.defaultCarId, ...car }) : "";
+}
+
+$("sfDriverKey")?.addEventListener("change", () => {
+  applyDriverDefaultCarToShift();
+  renderShiftPreview();
+});
+
+$("sfCarId")?.addEventListener("change", renderShiftPreview);
+
+function applyDriverDefaultCarToShift() {
+  const select = $("sfCarId");
+  if (!select) return;
+
+  const driverKey = isManager() ? $("sfDriverKey").value : state.currentStaff.staffKey;
+  const profile = getDriverProfile(driverKey);
+  if (!profile) return;
+
+  if (profile.defaultCarId && state.cars[profile.defaultCarId]) {
+    select.value = profile.defaultCarId;
+  } else if (!select.value) {
+    select.value = "";
+  }
+}
+
+/* =========================================================
+   SHIFT DEFAULTS
+========================================================= */
 function setShiftDefaults() {
   $("sfDate").value = todayISO();
   $("sfKm").value = "";
   $("sfStartTime").value = "";
   $("sfEndTime").value = "";
   $("sfNotes").value = "";
-  ["sfTaximetroCash","sfTaximetroCard","sfCabifyCash","sfCabifyApp","sfFreeNowCash","sfFreeNowApp","sfUberApp","sfFuel1","sfFuel2","sfFuel3","sfFuelOther","sfParking","sfTolls","sfCleaning","sfOtherExpenses","sfWash","sfOil","sfTyres","sfWorkshop","sfItv","sfOtherMaintenance"].forEach((id) => { $(id).value = "0"; });
-  if (state.currentUser?.role === "manager") { $("sfDriverKey").value = state.currentUser.staffKey; applyDriverDefaultCar(); }
-  else { const own = getProfileByKey(state.currentUser?.staffKey || ""); $("sfCarId").value = own?.defaultCarId || ""; }
+
+  [
+    "sfTaximetroCash",
+    "sfTaximetroCard",
+    "sfCabifyCash",
+    "sfCabifyApp",
+    "sfFreeNowCash",
+    "sfFreeNowApp",
+    "sfUberApp",
+    "sfFuel1",
+    "sfFuel2",
+    "sfFuel3",
+    "sfFuelOther",
+    "sfParking",
+    "sfTolls",
+    "sfCleaning",
+    "sfOtherExpenses",
+    "sfWash",
+    "sfOil",
+    "sfTyres",
+    "sfWorkshop",
+    "sfItv",
+    "sfOtherMaintenance",
+  ].forEach((id) => {
+    $(id).value = "0";
+  });
+
+  applyDriverDefaultCarToShift();
+  renderShiftPreview();
 }
 
+const shiftFieldIds = [
+  "sfDate",
+  "sfDriverKey",
+  "sfCarId",
+  "sfKm",
+  "sfStartTime",
+  "sfEndTime",
+  "sfNotes",
+  "sfTaximetroCash",
+  "sfTaximetroCard",
+  "sfCabifyCash",
+  "sfCabifyApp",
+  "sfFreeNowCash",
+  "sfFreeNowApp",
+  "sfUberApp",
+  "sfFuel1",
+  "sfFuel2",
+  "sfFuel3",
+  "sfFuelOther",
+  "sfParking",
+  "sfTolls",
+  "sfCleaning",
+  "sfOtherExpenses",
+  "sfWash",
+  "sfOil",
+  "sfTyres",
+  "sfWorkshop",
+  "sfItv",
+  "sfOtherMaintenance",
+];
+
+shiftFieldIds.forEach((id) => {
+  $(id)?.addEventListener("input", renderShiftPreview);
+  $(id)?.addEventListener("change", renderShiftPreview);
+});
+
+$("resetShiftBtn")?.addEventListener("click", () => {
+  $("shiftForm").reset();
+  setShiftDefaults();
+});
+
+/* =========================================================
+   SHIFT CALCULATIONS
+========================================================= */
 function minutesBetween(dateStr, startTime, endTime) {
   if (!dateStr || !startTime || !endTime) return 0;
+
   const start = new Date(`${dateStr}T${startTime}:00`);
   const end = new Date(`${dateStr}T${endTime}:00`);
+
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+
   let diff = end.getTime() - start.getTime();
   if (diff < 0) diff += 24 * 60 * 60 * 1000;
+
   return Math.round(diff / 60000);
 }
-function getShiftFormRaw() {
+
+function getShiftRawForm() {
   return {
-    dateKey: $("sfDate").value, km: $("sfKm").value, startTime: $("sfStartTime").value, endTime: $("sfEndTime").value, notes: $("sfNotes").value.trim(),
-    taximetroCash: $("sfTaximetroCash").value, taximetroCard: $("sfTaximetroCard").value, cabifyCash: $("sfCabifyCash").value, cabifyApp: $("sfCabifyApp").value,
-    freeNowCash: $("sfFreeNowCash").value, freeNowApp: $("sfFreeNowApp").value, uberApp: $("sfUberApp").value,
-    fuel1: $("sfFuel1").value, fuel2: $("sfFuel2").value, fuel3: $("sfFuel3").value, fuelOther: $("sfFuelOther").value,
-    parking: $("sfParking").value, tolls: $("sfTolls").value, cleaning: $("sfCleaning").value, otherExpenses: $("sfOtherExpenses").value,
-    wash: $("sfWash").value, oil: $("sfOil").value, tyres: $("sfTyres").value, workshop: $("sfWorkshop").value, itv: $("sfItv").value, otherMaintenance: $("sfOtherMaintenance").value,
+    dateKey: $("sfDate").value,
+    startTime: $("sfStartTime").value,
+    endTime: $("sfEndTime").value,
+    carId: $("sfCarId").value,
+    km: $("sfKm").value,
+    notes: $("sfNotes").value.trim(),
+
+    taximetroCash: $("sfTaximetroCash").value,
+    taximetroCard: $("sfTaximetroCard").value,
+
+    cabifyCash: $("sfCabifyCash").value,
+    cabifyApp: $("sfCabifyApp").value,
+
+    freeNowCash: $("sfFreeNowCash").value,
+    freeNowApp: $("sfFreeNowApp").value,
+
+    uberApp: $("sfUberApp").value,
+
+    fuel1: $("sfFuel1").value,
+    fuel2: $("sfFuel2").value,
+    fuel3: $("sfFuel3").value,
+    fuelOther: $("sfFuelOther").value,
+
+    parking: $("sfParking").value,
+    tolls: $("sfTolls").value,
+    cleaning: $("sfCleaning").value,
+    otherExpenses: $("sfOtherExpenses").value,
+
+    wash: $("sfWash").value,
+    oil: $("sfOil").value,
+    tyres: $("sfTyres").value,
+    workshop: $("sfWorkshop").value,
+    itv: $("sfItv").value,
+    otherMaintenance: $("sfOtherMaintenance").value,
   };
 }
+
 function calculateShift(raw) {
   const workedMinutes = minutesBetween(raw.dateKey, raw.startTime, raw.endTime);
   const workedHours = workedMinutes / 60;
   const km = num(raw.km);
+
   const totalTaximetro = num(raw.taximetroCash) + num(raw.taximetroCard);
   const totalCabify = num(raw.cabifyCash) + num(raw.cabifyApp);
   const totalFreeNow = num(raw.freeNowCash) + num(raw.freeNowApp);
   const totalUber = num(raw.uberApp);
+
   const totalCash = num(raw.taximetroCash) + num(raw.cabifyCash) + num(raw.freeNowCash);
   const totalCard = num(raw.taximetroCard);
   const totalApps = num(raw.cabifyApp) + num(raw.freeNowApp) + num(raw.uberApp);
   const totalIncome = totalTaximetro + totalCabify + totalFreeNow + totalUber;
-  const totalFuel = num(raw.fuel1) + num(raw.fuel2) + num(raw.fuel3) + num(raw.fuelOther);
-  const totalExpenses = num(raw.parking) + num(raw.tolls) + num(raw.cleaning) + num(raw.otherExpenses);
-  const totalMaintenance = num(raw.wash) + num(raw.oil) + num(raw.tyres) + num(raw.workshop) + num(raw.itv) + num(raw.otherMaintenance);
+
+  const totalFuel =
+    num(raw.fuel1) +
+    num(raw.fuel2) +
+    num(raw.fuel3) +
+    num(raw.fuelOther);
+
+  const totalExpenses =
+    num(raw.parking) +
+    num(raw.tolls) +
+    num(raw.cleaning) +
+    num(raw.otherExpenses);
+
+  const totalMaintenance =
+    num(raw.wash) +
+    num(raw.oil) +
+    num(raw.tyres) +
+    num(raw.workshop) +
+    num(raw.itv) +
+    num(raw.otherMaintenance);
+
   const totalSpending = totalFuel + totalExpenses + totalMaintenance;
   const netProfit = totalIncome - totalSpending;
-  return { workedMinutes, workedHours, km, totalTaximetro, totalCabify, totalFreeNow, totalUber, totalCash, totalCard, totalApps, totalIncome, totalFuel, totalExpenses, totalMaintenance, totalSpending, netProfit, kmPerEuro: safeDiv(km, totalIncome), eurPerHour: safeDiv(totalIncome, workedHours) };
+  const kmPerEuro = safeDiv(km, totalIncome);
+
+  return {
+    workedMinutes,
+    workedHours,
+    km,
+
+    totalTaximetro,
+    totalCabify,
+    totalFreeNow,
+    totalUber,
+
+    totalCash,
+    totalCard,
+    totalApps,
+    totalIncome,
+
+    totalFuel,
+    totalExpenses,
+    totalMaintenance,
+    totalSpending,
+    netProfit,
+    kmPerEuro,
+  };
 }
+
 function renderShiftPreview() {
-  const calc = calculateShift(getShiftFormRaw());
+  const raw = getShiftRawForm();
+  const calc = calculateShift(raw);
+
   $("taximetroTotalBadge").textContent = money(calc.totalTaximetro);
   $("cabifyTotalBadge").textContent = money(calc.totalCabify);
   $("freenowTotalBadge").textContent = money(calc.totalFreeNow);
   $("uberTotalBadge").textContent = money(calc.totalUber);
+
   $("fuelTotalBadge").textContent = money(calc.totalFuel);
   $("expensesTotalBadge").textContent = money(calc.totalExpenses);
   $("maintenanceTotalBadge").textContent = money(calc.totalMaintenance);
+
   $("sumCash").textContent = money(calc.totalCash);
   $("sumCard").textContent = money(calc.totalCard);
   $("sumApps").textContent = money(calc.totalApps);
   $("sumIncome").textContent = money(calc.totalIncome);
+
   $("sumFuel").textContent = money(calc.totalFuel);
   $("sumExpenses").textContent = money(calc.totalExpenses);
   $("sumMaintenance").textContent = money(calc.totalMaintenance);
   $("sumSpending").textContent = money(calc.totalSpending);
+
   $("finalIncome").textContent = money(calc.totalIncome);
   $("finalFuel").textContent = money(calc.totalFuel);
   $("finalSpending").textContent = money(calc.totalSpending);
   $("finalNet").textContent = money(calc.netProfit);
+
   $("shiftPreview").innerHTML = [
-    statCard("Horas", calc.workedHours.toFixed(2), `${calc.workedMinutes} min`),
-    statCard("KM", calc.km.toFixed(1), "Input directo"),
-    statCard("Ingresos", money(calc.totalIncome), "Todas las fuentes"),
-    statCard("Fuel", money(calc.totalFuel), "Solo combustible"),
+    statCard("Hours", calc.workedHours.toFixed(2), `${calc.workedMinutes} min`),
+    statCard("KM", calc.km.toFixed(1), "Direct input"),
+    statCard("Income", money(calc.totalIncome), "All sources"),
+    statCard("Fuel", money(calc.totalFuel), "Only fuel"),
     statCard("Spending", money(calc.totalSpending), "Fuel + gastos + mantenimiento"),
-    statCard("Neto", money(calc.netProfit), "Ingresos - gastos"),
-    statCard("KM/€", calc.kmPerEuro.toFixed(3), "Media"),
-    statCard("€/hora", calc.eurPerHour.toFixed(2), "Media"),
+    statCard("Net", money(calc.netProfit), "Income - spending"),
+    statCard("KM/€", calc.kmPerEuro.toFixed(3), "Average"),
+    statCard("Apps", money(calc.totalApps), "Cabify + Free Now + Uber"),
   ].join("");
 }
 
-async function handleSaveShift(e) {
+/* =========================================================
+   SAVE SHIFT
+========================================================= */
+$("shiftForm")?.addEventListener("submit", async (e) => {
   e.preventDefault();
+
   try {
     const payload = buildShiftPayload();
-    if (state.mode === "cloud" && state.authUser) {
-      await addDoc(collection(db, "shifts"), payload);
-      showToast("Turno guardado en cloud.");
-    } else {
-      addPendingLocalShift({ ...payload, id: randomId("local"), localOnly: true, createdAtLocal: Date.now() });
-      state.shifts = getPendingLocalShifts().sort(sortShiftsNewestFirst);
-      showToast("Turno guardado localmente.");
-      afterShiftsChange();
-    }
-    $("shiftForm").reset(); setShiftDefaults(); renderShiftPreview();
+    await addDoc(collection(db, "shifts"), payload);
+    showToast("Shift saved.");
+    $("shiftForm").reset();
+    setShiftDefaults();
     openView("historyView");
     document.querySelectorAll(".nav-btn").forEach((b) => b.classList.remove("active"));
     document.querySelector('[data-view="historyView"]').classList.add("active");
   } catch (error) {
     console.error(error);
-    showToast(error.message || "No se pudo guardar el turno.");
+    showToast(error.message || "Could not save shift.");
   }
-}
+});
 
 function buildShiftPayload() {
-  const driverKey = state.currentUser?.role === "manager" ? $("sfDriverKey").value : state.currentUser?.staffKey;
-  const profile = getProfileByKey(driverKey);
-  if (!profile) throw new Error("Driver no válido.");
-  const raw = getShiftFormRaw();
-  if (!raw.dateKey) throw new Error("La fecha es obligatoria.");
-  if (!raw.startTime || !raw.endTime) throw new Error("Las horas son obligatorias.");
-  if (num(raw.km) < 0) throw new Error("Los KM no pueden ser negativos.");
+  if (!state.currentStaff) throw new Error("No active user.");
+
+  const driverKey = isManager() ? $("sfDriverKey").value : state.currentStaff.staffKey;
+  const driver = getDriverProfile(driverKey);
+  if (!driver) throw new Error("Driver not found.");
+
+  const raw = getShiftRawForm();
+  if (!raw.dateKey) throw new Error("Date is required.");
+  if (!raw.startTime || !raw.endTime) throw new Error("Start and end times are required.");
+  if (num(raw.km) < 0) throw new Error("KM must be 0 or higher.");
+
   const calc = calculateShift(raw);
-  const car = getCarById($("sfCarId").value);
+  const car = raw.carId ? getCarById(raw.carId) : null;
+
   return {
-    driverKey: profile.staffKey,
-    driverName: profile.fullName,
-    driverColorHex: profile.colorHex || "#1d4ed8",
-    carId: car?.id || "",
-    vehicle: car ? getCarLabel(car) : "",
+    driverKey: driver.staffKey,
+    driverName: driver.fullName,
+    driverColorClass: driver.staffKey,
+    driverColorHex: getColorHex(driver),
+
+    managerKey: driver.managerKey || currentManagerKey(),
+    managerName: driver.managerName || currentManagerName(),
+
+    carId: raw.carId || "",
+    vehicle: car ? buildCarLabel({ id: raw.carId, ...car }) : "",
+
     dateKey: raw.dateKey,
     startTime: raw.startTime,
     endTime: raw.endTime,
     notes: raw.notes,
+
     km: calc.km,
     workedMinutes: calc.workedMinutes,
     workedHours: calc.workedHours,
-    taximetroCash: num(raw.taximetroCash), taximetroCard: num(raw.taximetroCard), cabifyCash: num(raw.cabifyCash), cabifyApp: num(raw.cabifyApp), freeNowCash: num(raw.freeNowCash), freeNowApp: num(raw.freeNowApp), uberApp: num(raw.uberApp),
-    totalTaximetro: calc.totalTaximetro, totalCabify: calc.totalCabify, totalFreeNow: calc.totalFreeNow, totalUber: calc.totalUber, totalCash: calc.totalCash, totalCard: calc.totalCard, totalApps: calc.totalApps, totalIncome: calc.totalIncome,
-    fuel1: num(raw.fuel1), fuel2: num(raw.fuel2), fuel3: num(raw.fuel3), fuelOther: num(raw.fuelOther), totalFuel: calc.totalFuel,
-    parking: num(raw.parking), tolls: num(raw.tolls), cleaning: num(raw.cleaning), otherExpenses: num(raw.otherExpenses), totalExpenses: calc.totalExpenses,
-    wash: num(raw.wash), oil: num(raw.oil), tyres: num(raw.tyres), workshop: num(raw.workshop), itv: num(raw.itv), otherMaintenance: num(raw.otherMaintenance), totalMaintenance: calc.totalMaintenance,
-    totalSpending: calc.totalSpending, netProfit: calc.netProfit, kmPerEuro: calc.kmPerEuro, eurPerHour: calc.eurPerHour,
-    managerKey: "mudassar", managerName: "MUDASSAR", status: "CLOSED",
-    createdByUid: state.authUser?.uid || "local-mode",
-    createdByKey: state.currentUser?.staffKey || "local-mode",
-    createdByRole: state.currentUser?.role || "driver",
-    createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+
+    taximetroCash: num(raw.taximetroCash),
+    taximetroCard: num(raw.taximetroCard),
+
+    cabifyCash: num(raw.cabifyCash),
+    cabifyApp: num(raw.cabifyApp),
+
+    freeNowCash: num(raw.freeNowCash),
+    freeNowApp: num(raw.freeNowApp),
+
+    uberApp: num(raw.uberApp),
+
+    totalTaximetro: calc.totalTaximetro,
+    totalCabify: calc.totalCabify,
+    totalFreeNow: calc.totalFreeNow,
+    totalUber: calc.totalUber,
+
+    totalCash: calc.totalCash,
+    totalCard: calc.totalCard,
+    totalApps: calc.totalApps,
+    totalIncome: calc.totalIncome,
+
+    fuel1: num(raw.fuel1),
+    fuel2: num(raw.fuel2),
+    fuel3: num(raw.fuel3),
+    fuelOther: num(raw.fuelOther),
+    totalFuel: calc.totalFuel,
+
+    parking: num(raw.parking),
+    tolls: num(raw.tolls),
+    cleaning: num(raw.cleaning),
+    otherExpenses: num(raw.otherExpenses),
+    totalExpenses: calc.totalExpenses,
+
+    wash: num(raw.wash),
+    oil: num(raw.oil),
+    tyres: num(raw.tyres),
+    workshop: num(raw.workshop),
+    itv: num(raw.itv),
+    otherMaintenance: num(raw.otherMaintenance),
+    totalMaintenance: calc.totalMaintenance,
+
+    totalSpending: calc.totalSpending,
+    netProfit: calc.netProfit,
+    kmPerEuro: calc.kmPerEuro,
+
+    status: "CLOSED",
+    createdByUid: state.authUser.uid,
+    createdByKey: state.currentStaff.staffKey,
+    createdByRole: state.currentStaff.role,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   };
 }
 
-function summarizeRows(rows) {
-  const s = rows.reduce((acc, row) => {
-    acc.count += 1; acc.totalHours += num(row.workedHours); acc.totalKm += num(row.km);
-    acc.totalTaximetro += num(row.totalTaximetro); acc.totalCabify += num(row.totalCabify); acc.totalFreeNow += num(row.totalFreeNow); acc.totalUber += num(row.totalUber);
-    acc.totalCash += num(row.totalCash); acc.totalCard += num(row.totalCard); acc.totalApps += num(row.totalApps); acc.totalIncome += num(row.totalIncome);
-    acc.totalFuel += num(row.totalFuel); acc.totalExpenses += num(row.totalExpenses); acc.totalMaintenance += num(row.totalMaintenance); acc.totalSpending += num(row.totalSpending); acc.netProfit += num(row.netProfit);
-    return acc;
-  }, { count: 0, totalHours: 0, totalKm: 0, totalTaximetro: 0, totalCabify: 0, totalFreeNow: 0, totalUber: 0, totalCash: 0, totalCard: 0, totalApps: 0, totalIncome: 0, totalFuel: 0, totalExpenses: 0, totalMaintenance: 0, totalSpending: 0, netProfit: 0, kmPerEuro: 0, eurPerHour: 0 });
-  s.kmPerEuro = safeDiv(s.totalKm, s.totalIncome); s.eurPerHour = safeDiv(s.totalIncome, s.totalHours);
-  return s;
-}
-function groupRowsBy(rows, keyFn) { return rows.reduce((acc, row) => { const key = keyFn(row); if (!acc[key]) acc[key] = []; acc[key].push(row); return acc; }, {}); }
-function filterRowsByRange(rows, range) {
-  if (range === "all") return [...rows];
-  const now = new Date(); const start = new Date(now); const end = new Date(now);
-  if (range === "today") { start.setHours(0,0,0,0); end.setHours(23,59,59,999); }
-  else if (range === "week") { const day = (start.getDay() + 6) % 7; start.setDate(start.getDate() - day); start.setHours(0,0,0,0); end.setTime(start.getTime()); end.setDate(start.getDate() + 6); end.setHours(23,59,59,999); }
-  else if (range === "month") { start.setDate(1); start.setHours(0,0,0,0); end.setMonth(end.getMonth()+1,0); end.setHours(23,59,59,999); }
-  else if (range === "year") { start.setMonth(0,1); start.setHours(0,0,0,0); end.setMonth(11,31); end.setHours(23,59,59,999); }
-  return rows.filter((row) => { const d = row.dateKey ? new Date(`${row.dateKey}T12:00:00`) : null; return d && d >= start && d <= end; });
-}
-function extractHour(timeStr) { if (!timeStr || !timeStr.includes(":")) return null; const h = Number(timeStr.split(":")[0]); return Number.isFinite(h) ? h : null; }
-function buildCoveredHours(startHour, endHour) { const result = []; let current = startHour; let guard = 0; while (guard < 30) { result.push(current); if (current === endHour) break; current = (current + 1) % 24; guard += 1; } return [...new Set(result)]; }
-function getPeakHour(rows) { const hourTotals = new Array(24).fill(0); rows.forEach((row) => { const sh = extractHour(row.startTime), eh = extractHour(row.endTime); if (sh === null || eh === null) return; const covered = buildCoveredHours(sh, eh); const distributed = safeDiv(num(row.totalIncome), covered.length || 1); covered.forEach((h) => hourTotals[h] += distributed); }); let bestHour = null, bestAmount = 0; hourTotals.forEach((amount, hour) => { if (amount > bestAmount) { bestHour = hour; bestAmount = amount; } }); return bestHour === null ? null : { hour: bestHour, amount: bestAmount }; }
-function getBestDay(rows) { return Object.entries(groupRowsBy(rows, (r) => r.dateKey)).map(([key, rs]) => ({ key, summary: summarizeRows(rs) })).sort((a, b) => b.summary.totalIncome - a.summary.totalIncome)[0] || null; }
-function getHighestFuelDay(rows) { return Object.entries(groupRowsBy(rows, (r) => r.dateKey)).map(([key, rs]) => ({ key, summary: summarizeRows(rs) })).sort((a, b) => b.summary.totalFuel - a.summary.totalFuel)[0] || null; }
-function getWorstDay(rows) { return Object.entries(groupRowsBy(rows, (r) => r.dateKey)).map(([key, rs]) => ({ key, summary: summarizeRows(rs) })).sort((a, b) => a.summary.totalIncome - b.summary.totalIncome)[0] || null; }
-function getBestDriver(rows) { return Object.entries(groupRowsBy(rows, (r) => r.driverKey)).map(([key, rs]) => ({ profile: getProfileByKey(key), summary: summarizeRows(rs) })).sort((a, b) => b.summary.totalIncome - a.summary.totalIncome)[0] || null; }
-
+/* =========================================================
+   DASHBOARD
+========================================================= */
 function renderDashboard() {
-  const today = summarizeRows(filterRowsByRange(state.shifts, "today"));
-  const week = summarizeRows(filterRowsByRange(state.shifts, "week"));
-  const month = summarizeRows(filterRowsByRange(state.shifts, "month"));
-  const year = summarizeRows(filterRowsByRange(state.shifts, "year"));
+  const todayRows = filterRowsByRange(state.shifts, "today");
+  const weekRows = filterRowsByRange(state.shifts, "week");
+  const monthRows = filterRowsByRange(state.shifts, "month");
+  const yearRows = filterRowsByRange(state.shifts, "year");
+
+  const today = summarizeRows(todayRows);
+  const week = summarizeRows(weekRows);
+  const month = summarizeRows(monthRows);
+  const year = summarizeRows(yearRows);
+
   $("dashboardStats").innerHTML = [
-    statCard("Ingresos hoy", money(today.totalIncome), `${today.count} turnos`),
-    statCard("Fuel hoy", money(today.totalFuel), "Solo combustible"),
-    statCard("Spending hoy", money(today.totalSpending), "Todo el gasto"),
-    statCard("Neto hoy", money(today.netProfit), "Resultado final"),
-    statCard("Ingresos semana", money(week.totalIncome), `${week.totalKm.toFixed(1)} km`),
-    statCard("Ingresos mes", money(month.totalIncome), `${month.totalHours.toFixed(1)} h`),
-    statCard("Ingresos año", money(year.totalIncome), `${year.count} turnos`),
-    statCard("KM/€ hoy", today.kmPerEuro.toFixed(3), "Media"),
+    statCard("Today Income", money(today.totalIncome), `${today.count} shifts`),
+    statCard("Today Fuel", money(today.totalFuel), "Fuel only"),
+    statCard("Today Spending", money(today.totalSpending), "All spend"),
+    statCard("Today Net", money(today.netProfit), "Final result"),
+    statCard("Week Income", money(week.totalIncome), `${week.totalKm.toFixed(1)} km`),
+    statCard("Month Income", money(month.totalIncome), `${month.totalHours.toFixed(1)} h`),
+    statCard("Year Income", money(year.totalIncome), `${year.count} shifts`),
+    statCard("Today KM/€", today.kmPerEuro.toFixed(3), "Average"),
   ].join("");
-  $("todayIncomeSources").innerHTML = [statCard("Taxímetro", money(today.totalTaximetro), "Efectivo + tarjeta"), statCard("Cabify", money(today.totalCabify), "Efectivo + app"), statCard("Free Now", money(today.totalFreeNow), "Efectivo + app"), statCard("Uber", money(today.totalUber), "Solo app")].join("");
-  $("todaySpendingSources").innerHTML = [statCard("Fuel", money(today.totalFuel), "Separado"), statCard("Gastos", money(today.totalExpenses), "Operativos"), statCard("Mantenimiento", money(today.totalMaintenance), "Servicio / taller"), statCard("Neto", money(today.netProfit), "Ingreso - gasto")].join("");
-  renderTopDrivers(); renderPeakAnalytics(); queueChartRender();
-}
-function renderTopDrivers() {
-  const ranked = Object.entries(groupRowsBy(state.shifts, (r) => r.driverKey)).map(([key, rs]) => ({ profile: getProfileByKey(key), summary: summarizeRows(rs) })).sort((a, b) => b.summary.totalIncome - a.summary.totalIncome).slice(0, 6);
-  $("topDriversList").innerHTML = ranked.length ? ranked.map(({ profile, summary }) => `<div class="stack-row"><div class="stack-row-left">${getDriverLineHtml(profile)}${getProfileImageHtml(profile, "small")}<div><strong>${escapeHtml(profile.fullName)}</strong><div class="muted">${summary.count} turnos • ${summary.totalKm.toFixed(1)} km</div></div></div><div><strong>${money(summary.totalIncome)}</strong><div class="muted">Neto ${money(summary.netProfit)}</div></div></div>`).join("") : `<div class="center-empty">No hay turnos todavía.</div>`;
-}
-function renderPeakAnalytics() {
-  const bestDay = getBestDay(state.shifts); const peakHour = getPeakHour(state.shifts); const fuelDay = getHighestFuelDay(state.shifts); const bestDriver = getBestDriver(state.shifts);
-  const items = [
-    { title: "Mejor día", value: bestDay ? `${bestDay.key} · ${money(bestDay.summary.totalIncome)}` : "—", sub: bestDay ? `${bestDay.summary.count} turnos` : "Sin datos" },
-    { title: "Hora pico", value: peakHour ? `${String(peakHour.hour).padStart(2, "0")}:00 · ${money(peakHour.amount)}` : "—", sub: peakHour ? "Estimación por horas" : "Sin datos" },
-    { title: "Día con más fuel", value: fuelDay ? `${fuelDay.key} · ${money(fuelDay.summary.totalFuel)}` : "—", sub: fuelDay ? "Fuel total" : "Sin datos" },
-    { title: "Top driver", value: bestDriver ? bestDriver.profile.fullName : "—", sub: bestDriver ? money(bestDriver.summary.totalIncome) : "Sin datos" },
-  ];
-  $("peakAnalyticsList").innerHTML = items.map((item) => `<div class="stack-row"><div><strong>${escapeHtml(item.title)}</strong><div class="muted">${escapeHtml(item.sub)}</div></div><div><strong>${escapeHtml(item.value)}</strong></div></div>`).join("");
+
+  $("todayIncomeSources").innerHTML = [
+    statCard("Taxímetro", money(today.totalTaximetro), "Cash + card"),
+    statCard("Cabify", money(today.totalCabify), "Cash + app"),
+    statCard("Free Now", money(today.totalFreeNow), "Cash + app"),
+    statCard("Uber", money(today.totalUber), "App only"),
+  ].join("");
+
+  $("todaySpendingSources").innerHTML = [
+    statCard("Fuel", money(today.totalFuel), "Separated"),
+    statCard("Gastos", money(today.totalExpenses), "Operational"),
+    statCard("Mantenimiento", money(today.totalMaintenance), "Service / repair"),
+    statCard("Net", money(today.netProfit), "Income - spending"),
+  ].join("");
+
+  renderTopDriversList();
+  renderPeakAnalyticsList();
+
+  if (isViewVisible("dashboardView")) {
+    renderDashboardCharts();
+  }
 }
 
-function resetAndRenderHistory() { state.historyPage = 1; renderHistoryTable(); }
+function renderTopDriversList() {
+  const groups = groupByKey(state.shifts, (row) => row.driverKey);
+
+  const ranked = Object.entries(groups)
+    .map(([staffKey, rows]) => ({
+      profile: getDriverProfile(staffKey),
+      summary: summarizeRows(rows),
+    }))
+    .sort((a, b) => b.summary.totalIncome - a.summary.totalIncome)
+    .slice(0, 6);
+
+  $("topDriversList").innerHTML = ranked.length
+    ? ranked
+        .map(({ profile, summary }) => {
+          return `
+            <div class="stack-row">
+              <div class="stack-row-left">
+                <div class="driver-line" style="${buildDriverLineStyle(profile)}"></div>
+                ${photoHtml(profile, true)}
+                <div>
+                  <strong>${esc(profile?.fullName || "")}</strong>
+                  <div class="muted">${summary.count} shifts • ${summary.totalKm.toFixed(1)} km</div>
+                </div>
+              </div>
+              <div>
+                <strong>${money(summary.totalIncome)}</strong>
+                <div class="muted">Net ${money(summary.netProfit)}</div>
+              </div>
+            </div>
+          `;
+        })
+        .join("")
+    : `<div class="center-empty">No shifts yet.</div>`;
+}
+
+function renderPeakAnalyticsList() {
+  const bestDay = getBestDay(state.shifts);
+  const worstDay = getWorstDay(state.shifts);
+  const peakHour = getPeakHour(state.shifts);
+  const highFuel = getHighestFuelDay(state.shifts);
+
+  const items = [
+    {
+      title: "Best Day",
+      value: bestDay ? `${bestDay.key} · ${money(bestDay.summary.totalIncome)}` : "—",
+      sub: bestDay ? `${bestDay.summary.count} shifts` : "No data",
+    },
+    {
+      title: "Worst Day",
+      value: worstDay ? `${worstDay.key} · ${money(worstDay.summary.totalIncome)}` : "—",
+      sub: worstDay ? "Lowest income" : "No data",
+    },
+    {
+      title: "Peak Hour",
+      value: peakHour ? `${peakHour.hour}:00 · ${money(peakHour.amount)}` : "—",
+      sub: peakHour ? "Estimated by shift time blocks" : "No data",
+    },
+    {
+      title: "Highest Fuel Day",
+      value: highFuel ? `${highFuel.key} · ${money(highFuel.summary.totalFuel)}` : "—",
+      sub: highFuel ? "Fuel total" : "No data",
+    },
+  ];
+
+  $("peakAnalyticsList").innerHTML = items
+    .map(
+      (item) => `
+        <div class="stack-row">
+          <div>
+            <strong>${esc(item.title)}</strong>
+            <div class="muted">${esc(item.sub)}</div>
+          </div>
+          <div><strong>${esc(item.value)}</strong></div>
+        </div>
+      `
+    )
+    .join("");
+}
+
+/* =========================================================
+   SHIFT HISTORY
+========================================================= */
+$("historySearch")?.addEventListener("input", resetAndRenderHistory);
+$("historyDateFilter")?.addEventListener("change", resetAndRenderHistory);
+$("historyDriverFilter")?.addEventListener("change", resetAndRenderHistory);
+$("historyCarFilter")?.addEventListener("input", resetAndRenderHistory);
+
+$("clearHistoryFiltersBtn")?.addEventListener("click", () => {
+  $("historySearch").value = "";
+  $("historyDateFilter").value = "";
+  populateHistoryDriverSelect();
+  $("historyCarFilter").value = "";
+  state.historyPage = 1;
+  renderHistoryTable();
+});
+
+$("historyPrevBtn")?.addEventListener("click", () => {
+  state.historyPage = Math.max(1, state.historyPage - 1);
+  renderHistoryTable();
+});
+
+$("historyNextBtn")?.addEventListener("click", () => {
+  const totalPages = Math.max(1, Math.ceil(getFilteredHistoryRows().length / HISTORY_PAGE_SIZE));
+  state.historyPage = Math.min(totalPages, state.historyPage + 1);
+  renderHistoryTable();
+});
+
+function resetAndRenderHistory() {
+  state.historyPage = 1;
+  renderHistoryTable();
+}
+
 function getFilteredHistoryRows() {
-  const search = $("historySearch").value.trim().toLowerCase();
+  const searchText = $("historySearch").value.trim().toLowerCase();
   const dateFilter = $("historyDateFilter").value;
   const driverFilter = $("historyDriverFilter").value;
   const carFilter = $("historyCarFilter").value.trim().toLowerCase();
+
   return state.shifts.filter((row) => {
-    const combined = [row.driverName, row.vehicle, row.notes, row.dateKey, row.managerName].join(" ").toLowerCase();
-    const matchesSearch = !search || combined.includes(search);
+    const matchesSearch =
+      !searchText ||
+      [
+        row.driverName,
+        row.vehicle,
+        row.notes,
+        row.dateKey,
+        row.managerName,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(searchText);
+
     const matchesDate = !dateFilter || row.dateKey === dateFilter;
     const matchesDriver = !driverFilter || driverFilter === "all" || row.driverKey === driverFilter;
     const matchesCar = !carFilter || String(row.vehicle || "").toLowerCase().includes(carFilter);
+
     return matchesSearch && matchesDate && matchesDriver && matchesCar;
   });
 }
-function getHistoryTotalPages() { return Math.max(1, Math.ceil(getFilteredHistoryRows().length / HISTORY_PAGE_SIZE)); }
+
 function renderHistoryTable() {
   const filtered = getFilteredHistoryRows();
   const totalPages = Math.max(1, Math.ceil(filtered.length / HISTORY_PAGE_SIZE));
+
   if (state.historyPage > totalPages) state.historyPage = totalPages;
+
   const start = (state.historyPage - 1) * HISTORY_PAGE_SIZE;
   const pageRows = filtered.slice(start, start + HISTORY_PAGE_SIZE);
+
   $("historyResultsCount").textContent = `${filtered.length} results`;
   $("historyCurrentPageInfo").textContent = `Page ${state.historyPage}`;
   $("historyPaginationInfo").textContent = `Page ${state.historyPage} of ${totalPages}`;
+
   $("historyPrevBtn").disabled = state.historyPage <= 1;
   $("historyNextBtn").disabled = state.historyPage >= totalPages;
-  if (!pageRows.length) { $("historyTableBody").innerHTML = `<tr><td colspan="9"><div class="center-empty">No se encontraron turnos.</div></td></tr>`; return; }
-  $("historyTableBody").innerHTML = pageRows.map((row) => {
-    const profile = getProfileByKey(row.driverKey) || FIXED_STAFF.mudassar;
-    return `<tr class="history-row" style="border-left:5px solid ${escapeHtml(profile.colorHex || '#1d4ed8')}"><td><div class="history-driver-cell">${getProfileImageHtml(profile, 'small')}<div>${getDriverBadgeHtml(profile)}<div class="muted">${escapeHtml(row.managerName || '')}</div></div></div></td><td>${escapeHtml(formatDate(row.dateKey))}</td><td>${escapeHtml(truncateText(row.vehicle || '-', 36))}</td><td>${num(row.workedHours).toFixed(2)}</td><td>${num(row.km).toFixed(1)}</td><td class="income-positive">${money(row.totalIncome)}</td><td class="warning-text">${money(row.totalFuel)}</td><td class="spending-negative">${money(row.totalSpending)}</td><td class="${num(row.netProfit) >= 0 ? 'income-positive' : 'spending-negative'}">${money(row.netProfit)}</td></tr>`;
-  }).join("");
+
+  if (!pageRows.length) {
+    $("historyTableBody").innerHTML = `
+      <tr>
+        <td colspan="9">
+          <div class="center-empty">No shifts found.</div>
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  $("historyTableBody").innerHTML = pageRows
+    .map((row) => {
+      const profile = getDriverProfile(row.driverKey) || {};
+      return `
+        <tr class="history-row" style="${buildHistoryRowStyle(profile)}">
+          <td>
+            <div class="history-driver-cell">
+              ${photoHtml(profile, true)}
+              <div>
+                <div class="driver-badge" style="${buildDriverBadgeStyle(profile)}">${esc(row.driverName)}</div>
+                <div class="muted">${esc(row.managerName || "")}</div>
+              </div>
+            </div>
+          </td>
+          <td>${esc(formatDate(row.dateKey))}</td>
+          <td>${esc(row.vehicle || "-")}</td>
+          <td>${num(row.workedHours).toFixed(2)}</td>
+          <td>${num(row.km).toFixed(1)}</td>
+          <td class="income-positive">${money(row.totalIncome)}</td>
+          <td class="warning-text">${money(row.totalFuel)}</td>
+          <td class="spending-negative">${money(row.totalSpending)}</td>
+          <td class="${num(row.netProfit) >= 0 ? "income-positive" : "spending-negative"}">${money(
+            row.netProfit
+          )}</td>
+        </tr>
+      `;
+    })
+    .join("");
 }
+
+/* =========================================================
+   REPORTS
+========================================================= */
+$("reportRange")?.addEventListener("change", renderReports);
+$("reportDriverFilter")?.addEventListener("change", renderReports);
+$("reportCarFilter")?.addEventListener("input", renderReports);
 
 function getReportRows() {
   const range = $("reportRange").value;
-  const driverKey = state.currentUser?.role === "manager" ? $("reportDriverFilter").value : state.currentUser?.staffKey || "all";
-  const carFilter = $("reportCarFilter").value.trim().toLowerCase();
+  const driverKey = isManager() ? $("reportDriverFilter").value : state.currentStaff.staffKey;
+  const carText = $("reportCarFilter").value.trim().toLowerCase();
+
   let rows = filterRowsByRange(state.shifts, range);
-  if (driverKey && driverKey !== "all") rows = rows.filter((row) => row.driverKey === driverKey);
-  if (carFilter) rows = rows.filter((row) => String(row.vehicle || "").toLowerCase().includes(carFilter));
+
+  if (driverKey && driverKey !== "all") {
+    rows = rows.filter((row) => row.driverKey === driverKey);
+  }
+
+  if (carText) {
+    rows = rows.filter((row) => String(row.vehicle || "").toLowerCase().includes(carText));
+  }
+
   return rows;
 }
-function renderReportProfileCard(rows) {
-  const driverKey = state.currentUser?.role === "manager" ? $("reportDriverFilter").value : state.currentUser?.staffKey || "all";
-  const profile = driverKey && driverKey !== "all" ? getProfileByKey(driverKey) : null;
-  const summary = summarizeRows(rows);
-  if (profile) {
-    $("reportProfileName").textContent = profile.fullName;
-    $("reportProfileMeta").textContent = `${summary.count} turnos · ${money(summary.totalIncome)} · ${summary.totalKm.toFixed(1)} km`;
-    if (profile.photoUrl) { $("reportProfilePhoto").src = profile.photoUrl; show($("reportProfilePhoto")); hide($("reportProfileAvatar")); }
-    else { hide($("reportProfilePhoto")); $("reportProfileAvatar").textContent = initials(profile.fullName); show($("reportProfileAvatar")); }
-  } else {
-    $("reportProfileName").textContent = "GLOBAL";
-    $("reportProfileMeta").textContent = `${summary.count} turnos · ${money(summary.totalIncome)} · ${summary.totalKm.toFixed(1)} km`;
-    hide($("reportProfilePhoto")); $("reportProfileAvatar").textContent = "G"; show($("reportProfileAvatar"));
-  }
-}
+
 function renderReports() {
   const rows = getReportRows();
   const summary = summarizeRows(rows);
-  renderReportProfileCard(rows);
+
   $("reportStats").innerHTML = [
-    statCard("Ingresos", money(summary.totalIncome), `${summary.count} turnos`),
-    statCard("Fuel", money(summary.totalFuel), "Separado"),
-    statCard("Spending", money(summary.totalSpending), "Todo el gasto"),
-    statCard("Neto", money(summary.netProfit), "Resultado final"),
-    statCard("KM", summary.totalKm.toFixed(1), "Input directo"),
-    statCard("KM/€", summary.kmPerEuro.toFixed(3), "Media"),
-    statCard("€/hora", summary.eurPerHour.toFixed(2), "Media"),
+    statCard("Income", money(summary.totalIncome), `${summary.count} shifts`),
+    statCard("Fuel", money(summary.totalFuel), "Separated"),
+    statCard("Spending", money(summary.totalSpending), "All spend"),
+    statCard("Net", money(summary.netProfit), "Final result"),
+    statCard("KM", summary.totalKm.toFixed(1), "Direct input"),
+    statCard("KM/€", summary.kmPerEuro.toFixed(3), "Average"),
+    statCard("Hours", summary.totalHours.toFixed(2), "Worked"),
     statCard("Apps", money(summary.totalApps), "Cabify + Free Now + Uber"),
   ].join("");
-  renderReportPeakList(rows); renderReportBreakdownList(summary); renderDailyReportList(rows); renderPeriodReportList(rows, summary); queueChartRender();
-}
-function renderReportPeakList(rows) {
-  const bestDay = getBestDay(rows), worstDay = getWorstDay(rows), peakHour = getPeakHour(rows), fuelDay = getHighestFuelDay(rows);
-  const items = [
-    { title: "Peak day", value: bestDay ? `${bestDay.key} · ${money(bestDay.summary.totalIncome)}` : "—", sub: bestDay ? `${bestDay.summary.count} turnos` : "Sin datos" },
-    { title: "Worst day", value: worstDay ? `${worstDay.key} · ${money(worstDay.summary.totalIncome)}` : "—", sub: worstDay ? "Por ingresos" : "Sin datos" },
-    { title: "Peak hour", value: peakHour ? `${String(peakHour.hour).padStart(2,'0')}:00 · ${money(peakHour.amount)}` : "—", sub: peakHour ? "Estimación" : "Sin datos" },
-    { title: "Highest fuel day", value: fuelDay ? `${fuelDay.key} · ${money(fuelDay.summary.totalFuel)}` : "—", sub: fuelDay ? "Fuel total" : "Sin datos" },
-  ];
-  $("reportPeakList").innerHTML = items.map((item) => `<div class="stack-row"><div><strong>${escapeHtml(item.title)}</strong><div class="muted">${escapeHtml(item.sub)}</div></div><div><strong>${escapeHtml(item.value)}</strong></div></div>`).join("");
-}
-function renderReportBreakdownList(summary) {
-  const items = [["Taxímetro", money(summary.totalTaximetro), "Efectivo + tarjeta"],["Cabify", money(summary.totalCabify), "Efectivo + app"],["Free Now", money(summary.totalFreeNow), "Efectivo + app"],["Uber", money(summary.totalUber), "Solo app"],["Fuel", money(summary.totalFuel), "Solo combustible"],["Gastos", money(summary.totalExpenses), "Operativos"],["Mantenimiento", money(summary.totalMaintenance), "Servicio / taller"],["KM/€", summary.kmPerEuro.toFixed(3), "Media"]];
-  $("reportBreakdownList").innerHTML = items.map(([title, value, sub]) => `<div class="stack-row"><div><strong>${escapeHtml(title)}</strong><div class="muted">${escapeHtml(sub)}</div></div><div><strong>${escapeHtml(value)}</strong></div></div>`).join("");
-}
-function renderDailyReportList(rows) {
-  const days = Object.entries(groupRowsBy(rows, (r) => r.dateKey)).map(([key, rs]) => ({ key, summary: summarizeRows(rs) })).sort((a,b) => b.key.localeCompare(a.key)).slice(0, 12);
-  $("dailyReportList").innerHTML = days.length ? days.map((day) => `<div class="stack-row"><div><strong>${escapeHtml(day.key)}</strong><div class="muted">${day.summary.count} turnos • ${day.summary.totalKm.toFixed(1)} km</div></div><div><strong>${money(day.summary.totalIncome)}</strong><div class="muted">Fuel ${money(day.summary.totalFuel)} · Neto ${money(day.summary.netProfit)}</div></div></div>`).join("") : `<div class="center-empty">No hay datos de reporte.</div>`;
-}
-function renderPeriodReportList(rows, summary) {
-  const bestDriver = getBestDriver(rows); const avgIncome = safeDiv(summary.totalIncome, summary.count); const avgFuel = safeDiv(summary.totalFuel, summary.count); const avgNet = safeDiv(summary.netProfit, summary.count);
-  const items = [{ title: "Ingreso medio por turno", value: money(avgIncome), sub: `${summary.count} turnos` },{ title: "Fuel medio por turno", value: money(avgFuel), sub: "Por turno" },{ title: "Neto medio por turno", value: money(avgNet), sub: "Por turno" },{ title: "Mejor driver", value: bestDriver ? bestDriver.profile.fullName : "—", sub: bestDriver ? money(bestDriver.summary.totalIncome) : "Sin datos" }];
-  $("periodReportList").innerHTML = items.map((item) => `<div class="stack-row"><div><strong>${escapeHtml(item.title)}</strong><div class="muted">${escapeHtml(item.sub)}</div></div><div><strong>${escapeHtml(item.value)}</strong></div></div>`).join("");
-}
 
-async function ensureChartJs() {
-  if (window.Chart) return window.Chart;
-  if (state.chartLibPromise) return state.chartLibPromise;
-  state.chartLibPromise = new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "https://cdn.jsdelivr.net/npm/chart.js";
-    script.async = true;
-    script.onload = () => resolve(window.Chart);
-    script.onerror = reject;
-    document.head.appendChild(script);
-  });
-  return state.chartLibPromise;
-}
-function buildLastSevenDaysSeries(rows) {
-  const labels = [], incomeData = [], fuelData = [], netData = [];
-  for (let i = 6; i >= 0; i -= 1) {
-    const d = new Date(); d.setDate(d.getDate() - i); const key = d.toISOString().slice(0,10); labels.push(key); const s = summarizeRows(rows.filter((r) => r.dateKey === key)); incomeData.push(s.totalIncome); fuelData.push(s.totalFuel); netData.push(s.netProfit);
+  renderReportPeakList(rows);
+  renderReportBreakdownList(summary);
+  renderDailyReportList(rows);
+  renderPeriodReportList(rows, summary);
+
+  if (isViewVisible("reportsView")) {
+    renderReportCharts();
   }
-  return { labels, incomeData, fuelData, netData };
-}
-function buildGroupedSeriesByDay(rows) {
-  const entries = Object.entries(groupRowsBy(rows, (r) => r.dateKey)).sort((a,b) => a[0].localeCompare(b[0]));
-  return { labels: entries.map(([k]) => k), income: entries.map(([,rs]) => summarizeRows(rs).totalIncome), fuel: entries.map(([,rs]) => summarizeRows(rs).totalFuel), net: entries.map(([,rs]) => summarizeRows(rs).netProfit) };
-}
-let chartRenderQueued = false;
-function queueChartRender() { if (chartRenderQueued) return; chartRenderQueued = true; Promise.resolve().then(async () => { chartRenderQueued = false; await renderCharts(); }); }
-async function renderCharts() {
-  try {
-    const ChartLib = await ensureChartJs();
-    if (!ChartLib) return;
-    renderDashboardCharts(ChartLib); renderReportCharts(ChartLib);
-  } catch (error) { console.warn("Chart.js no cargado", error); }
-}
-function renderDashboardCharts(ChartLib) {
-  if (state.incomeChart) state.incomeChart.destroy(); if (state.spendingChart) state.spendingChart.destroy();
-  const series = buildLastSevenDaysSeries(state.shifts);
-  state.incomeChart = new ChartLib($("incomeChart"), { type: "line", data: { labels: series.labels, datasets: [{ label: "Ingresos", data: series.incomeData, borderColor: getCssColor("--primary", "#1d4ed8"), backgroundColor: blendColor(getCssColor("--primary", "#1d4ed8"), .18), fill: true, tension: .3 }, { label: "Neto", data: series.netData, borderColor: getCssColor("--success", "#16a34a"), backgroundColor: blendColor(getCssColor("--success", "#16a34a"), .12), fill: true, tension: .3 }] }, options: { responsive: true, maintainAspectRatio: false, animation: { duration: 300 }, scales: { y: { beginAtZero: true } } } });
-  state.spendingChart = new ChartLib($("spendingChart"), { type: "bar", data: { labels: series.labels, datasets: [{ label: "Fuel", data: series.fuelData, backgroundColor: blendColor(getCssColor("--warning", "#d97706"), .65) }, { label: "Neto", data: series.netData, backgroundColor: blendColor(getCssColor("--success", "#16a34a"), .6) }] }, options: { responsive: true, maintainAspectRatio: false, animation: { duration: 300 }, scales: { y: { beginAtZero: true } } } });
-}
-function renderReportCharts(ChartLib) {
-  if (state.reportChart) state.reportChart.destroy(); if (state.appBreakdownChart) state.appBreakdownChart.destroy();
-  const rows = getReportRows(); const grouped = buildGroupedSeriesByDay(rows); const summary = summarizeRows(rows);
-  state.reportChart = new ChartLib($("reportChart"), { type: "line", data: { labels: grouped.labels, datasets: [{ label: "Ingresos", data: grouped.income, borderColor: getCssColor("--primary", "#1d4ed8"), backgroundColor: blendColor(getCssColor("--primary", "#1d4ed8"), .16), fill: true, tension: .3 }, { label: "Fuel", data: grouped.fuel, borderColor: getCssColor("--warning", "#d97706"), backgroundColor: blendColor(getCssColor("--warning", "#d97706"), .12), fill: true, tension: .3 }, { label: "Neto", data: grouped.net, borderColor: getCssColor("--success", "#16a34a"), backgroundColor: blendColor(getCssColor("--success", "#16a34a"), .1), fill: true, tension: .3 }] }, options: { responsive: true, maintainAspectRatio: false, animation: { duration: 300 }, scales: { y: { beginAtZero: true } } } });
-  state.appBreakdownChart = new ChartLib($("appBreakdownChart"), { type: "bar", data: { labels: ["Taxímetro","Cabify","Free Now","Uber"], datasets: [{ label: "Ingresos", data: [summary.totalTaximetro, summary.totalCabify, summary.totalFreeNow, summary.totalUber], backgroundColor: [blendColor("#1849a9", .65), blendColor("#067647", .65), blendColor("#b54708", .65), blendColor("#111827", .65)] }] }, options: { responsive: true, maintainAspectRatio: false, animation: { duration: 300 }, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } } });
 }
 
-async function handleCreateDriver() {
-  if (state.currentUser?.role !== "manager") return showToast("Solo el manager puede crear drivers.");
-  try {
-    const fullName = $("newDriverName").value.trim();
-    const email = $("newDriverEmail").value.trim();
-    const pin = $("newDriverPin").value.trim();
-    const defaultCarId = $("newDriverCarId").value;
-    const phone = $("newDriverPhone").value.trim();
-    const colorHex = $("newDriverColor").value || "#16a34a";
-    const alias = slugify($("newDriverAlias").value.trim() || fullName);
-    if (!fullName) throw new Error("El nombre es obligatorio.");
-    if (!alias) throw new Error("Alias no válido.");
-    if (getAllProfiles()[alias]) throw new Error("Ese alias ya existe.");
-    await setDoc(doc(db, "driverProfiles", alias), {
-      staffKey: alias, fullName, role: "driver", email, managerKey: "mudassar", managerName: "MUDASSAR", colorHex,
-      phone, defaultCarId, photoUrl: "", photoPath: "", active: true, systemUser: false, operationalOnly: true,
-      requestedLoginEmail: email, requestedPinInfo: pin ? "PIN capturado en alta" : "", createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+function renderReportPeakList(rows) {
+  const bestDay = getBestDay(rows);
+  const worstDay = getWorstDay(rows);
+  const peakHour = getPeakHour(rows);
+  const fuelDay = getHighestFuelDay(rows);
+
+  const items = [
+    {
+      title: "Peak Day",
+      value: bestDay ? `${bestDay.key} · ${money(bestDay.summary.totalIncome)}` : "—",
+      sub: bestDay ? `${bestDay.summary.count} shifts` : "No data",
+    },
+    {
+      title: "Worst Day",
+      value: worstDay ? `${worstDay.key} · ${money(worstDay.summary.totalIncome)}` : "—",
+      sub: worstDay ? "Lowest income" : "No data",
+    },
+    {
+      title: "Peak Hour",
+      value: peakHour ? `${peakHour.hour}:00 · ${money(peakHour.amount)}` : "—",
+      sub: peakHour ? "Estimated by shift blocks" : "No data",
+    },
+    {
+      title: "Highest Fuel Day",
+      value: fuelDay ? `${fuelDay.key} · ${money(fuelDay.summary.totalFuel)}` : "—",
+      sub: fuelDay ? "Fuel total" : "No data",
+    },
+  ];
+
+  $("reportPeakList").innerHTML = items
+    .map(
+      (item) => `
+        <div class="stack-row">
+          <div>
+            <strong>${esc(item.title)}</strong>
+            <div class="muted">${esc(item.sub)}</div>
+          </div>
+          <div><strong>${esc(item.value)}</strong></div>
+        </div>
+      `
+    )
+    .join("");
+}
+
+function renderReportBreakdownList(summary) {
+  const items = [
+    ["Taxímetro", money(summary.totalTaximetro), "Cash + card"],
+    ["Cabify", money(summary.totalCabify), "Cash + app"],
+    ["Free Now", money(summary.totalFreeNow), "Cash + app"],
+    ["Uber", money(summary.totalUber), "App only"],
+    ["Fuel", money(summary.totalFuel), "Only fuel"],
+    ["Gastos", money(summary.totalExpenses), "Operational"],
+    ["Mantenimiento", money(summary.totalMaintenance), "Service / repair"],
+    ["KM/€", summary.kmPerEuro.toFixed(3), "Average"],
+  ];
+
+  $("reportBreakdownList").innerHTML = items
+    .map(
+      ([title, value, sub]) => `
+        <div class="stack-row">
+          <div>
+            <strong>${esc(title)}</strong>
+            <div class="muted">${esc(sub)}</div>
+          </div>
+          <div><strong>${esc(value)}</strong></div>
+        </div>
+      `
+    )
+    .join("");
+}
+
+function renderDailyReportList(rows) {
+  const grouped = groupByKey(rows, (row) => row.dateKey);
+  const days = Object.entries(grouped)
+    .map(([key, dayRows]) => ({
+      key,
+      summary: summarizeRows(dayRows),
+    }))
+    .sort((a, b) => b.key.localeCompare(a.key))
+    .slice(0, 12);
+
+  $("dailyReportList").innerHTML = days.length
+    ? days
+        .map(
+          (day) => `
+            <div class="stack-row">
+              <div>
+                <strong>${esc(day.key)}</strong>
+                <div class="muted">${day.summary.count} shifts • ${day.summary.totalKm.toFixed(
+            1
+          )} km</div>
+              </div>
+              <div>
+                <strong>${money(day.summary.totalIncome)}</strong>
+                <div class="muted">Fuel ${money(day.summary.totalFuel)} · Net ${money(
+            day.summary.netProfit
+          )}</div>
+              </div>
+            </div>
+          `
+        )
+        .join("")
+    : `<div class="center-empty">No report data.</div>`;
+}
+
+function renderPeriodReportList(rows, summary) {
+  const bestDriver = getBestDriver(rows);
+  const avgShiftIncome = safeDiv(summary.totalIncome, summary.count);
+  const avgShiftFuel = safeDiv(summary.totalFuel, summary.count);
+  const avgShiftNet = safeDiv(summary.netProfit, summary.count);
+
+  const items = [
+    {
+      title: "Average Shift Income",
+      value: money(avgShiftIncome),
+      sub: `${summary.count} shifts`,
+    },
+    {
+      title: "Average Shift Fuel",
+      value: money(avgShiftFuel),
+      sub: "Per shift",
+    },
+    {
+      title: "Average Shift Net",
+      value: money(avgShiftNet),
+      sub: "Per shift",
+    },
+    {
+      title: "Best Driver",
+      value: bestDriver ? bestDriver.profile.fullName : "—",
+      sub: bestDriver ? money(bestDriver.summary.totalIncome) : "No data",
+    },
+  ];
+
+  $("periodReportList").innerHTML = items
+    .map(
+      (item) => `
+        <div class="stack-row">
+          <div>
+            <strong>${esc(item.title)}</strong>
+            <div class="muted">${esc(item.sub)}</div>
+          </div>
+          <div><strong>${esc(item.value)}</strong></div>
+        </div>
+      `
+    )
+    .join("");
+}
+
+/* =========================================================
+   SUMMARY / ANALYTICS HELPERS
+========================================================= */
+function filterRowsByRange(rows, range) {
+  if (range === "all") return [...rows];
+
+  const now = new Date();
+  const start = new Date(now);
+  const end = new Date(now);
+
+  if (range === "today") {
+    start.setHours(0, 0, 0, 0);
+    end.setHours(23, 59, 59, 999);
+  } else if (range === "week") {
+    const day = (start.getDay() + 6) % 7;
+    start.setDate(start.getDate() - day);
+    start.setHours(0, 0, 0, 0);
+    end.setTime(start.getTime());
+    end.setDate(start.getDate() + 6);
+    end.setHours(23, 59, 59, 999);
+  } else if (range === "month") {
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+    end.setMonth(end.getMonth() + 1, 0);
+    end.setHours(23, 59, 59, 999);
+  } else if (range === "year") {
+    start.setMonth(0, 1);
+    start.setHours(0, 0, 0, 0);
+    end.setMonth(11, 31);
+    end.setHours(23, 59, 59, 999);
+  } else {
+    return [...rows];
+  }
+
+  return rows.filter((row) => {
+    const d = row.dateKey ? new Date(`${row.dateKey}T12:00:00`) : null;
+    return d && d >= start && d <= end;
+  });
+}
+
+function summarizeRows(rows) {
+  const base = rows.reduce(
+    (acc, row) => {
+      acc.count += 1;
+      acc.totalHours += num(row.workedHours);
+      acc.totalKm += num(row.km);
+
+      acc.totalTaximetro += num(row.totalTaximetro);
+      acc.totalCabify += num(row.totalCabify);
+      acc.totalFreeNow += num(row.totalFreeNow);
+      acc.totalUber += num(row.totalUber);
+
+      acc.totalCash += num(row.totalCash);
+      acc.totalCard += num(row.totalCard);
+      acc.totalApps += num(row.totalApps);
+      acc.totalIncome += num(row.totalIncome);
+
+      acc.totalFuel += num(row.totalFuel);
+      acc.totalExpenses += num(row.totalExpenses);
+      acc.totalMaintenance += num(row.totalMaintenance);
+      acc.totalSpending += num(row.totalSpending);
+
+      acc.netProfit += num(row.netProfit);
+      return acc;
+    },
+    {
+      count: 0,
+      totalHours: 0,
+      totalKm: 0,
+
+      totalTaximetro: 0,
+      totalCabify: 0,
+      totalFreeNow: 0,
+      totalUber: 0,
+
+      totalCash: 0,
+      totalCard: 0,
+      totalApps: 0,
+      totalIncome: 0,
+
+      totalFuel: 0,
+      totalExpenses: 0,
+      totalMaintenance: 0,
+      totalSpending: 0,
+
+      netProfit: 0,
+      kmPerEuro: 0,
+    }
+  );
+
+  base.kmPerEuro = safeDiv(base.totalKm, base.totalIncome);
+  return base;
+}
+
+function groupByKey(rows, getKey) {
+  return rows.reduce((acc, row) => {
+    const key = getKey(row);
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(row);
+    return acc;
+  }, {});
+}
+
+function getBestDay(rows) {
+  const groups = groupByKey(rows, (row) => row.dateKey);
+  const ranked = Object.entries(groups)
+    .map(([key, dayRows]) => ({ key, summary: summarizeRows(dayRows) }))
+    .sort((a, b) => b.summary.totalIncome - a.summary.totalIncome);
+  return ranked[0] || null;
+}
+
+function getWorstDay(rows) {
+  const groups = groupByKey(rows, (row) => row.dateKey);
+  const ranked = Object.entries(groups)
+    .map(([key, dayRows]) => ({ key, summary: summarizeRows(dayRows) }))
+    .sort((a, b) => a.summary.totalIncome - b.summary.totalIncome);
+  return ranked[0] || null;
+}
+
+function getHighestFuelDay(rows) {
+  const groups = groupByKey(rows, (row) => row.dateKey);
+  const ranked = Object.entries(groups)
+    .map(([key, dayRows]) => ({ key, summary: summarizeRows(dayRows) }))
+    .sort((a, b) => b.summary.totalFuel - a.summary.totalFuel);
+  return ranked[0] || null;
+}
+
+function getBestDriver(rows) {
+  const groups = groupByKey(rows, (row) => row.driverKey);
+  const ranked = Object.entries(groups)
+    .map(([staffKey, driverRows]) => ({
+      profile: getDriverProfile(staffKey),
+      summary: summarizeRows(driverRows),
+    }))
+    .sort((a, b) => b.summary.totalIncome - a.summary.totalIncome);
+  return ranked[0] || null;
+}
+
+function getPeakHour(rows) {
+  const hourTotals = new Array(24).fill(0);
+
+  rows.forEach((row) => {
+    const startHour = extractHour(row.startTime);
+    const endHour = extractHour(row.endTime);
+    if (startHour === null || endHour === null) return;
+
+    const hours = buildCoveredHours(startHour, endHour);
+    const allocated = safeDiv(num(row.totalIncome), hours.length);
+
+    hours.forEach((hour) => {
+      hourTotals[hour] += allocated;
     });
-    $("newDriverForm").reset(); $("newDriverColor").value = "#16a34a"; showToast("Driver creado.");
-  } catch (error) { console.error(error); showToast(error.message || "No se pudo crear el driver."); }
+  });
+
+  let bestHour = null;
+  let bestAmount = 0;
+
+  hourTotals.forEach((amount, hour) => {
+    if (amount > bestAmount) {
+      bestAmount = amount;
+      bestHour = hour;
+    }
+  });
+
+  return bestHour === null ? null : { hour: bestHour, amount: bestAmount };
 }
-async function saveDriverProfile(staffKey) {
-  try {
-    const profile = getProfileByKey(staffKey); if (!profile) throw new Error("Driver no encontrado.");
-    const fullName = profile.systemUser ? profile.fullName : (document.querySelector(`[data-driver-name="${staffKey}"]`)?.value?.trim() || profile.fullName);
-    const phone = document.querySelector(`[data-driver-phone="${staffKey}"]`)?.value?.trim() || "";
-    const defaultCarId = document.querySelector(`[data-driver-default-car="${staffKey}"]`)?.value || "";
-    const colorHex = document.querySelector(`[data-driver-color="${staffKey}"]`)?.value || profile.colorHex || "#1d4ed8";
-    const active = !!document.querySelector(`[data-driver-active="${staffKey}"]`)?.checked;
-    await setDoc(doc(db, "driverProfiles", staffKey), {
-      staffKey, fullName, role: profile.role, email: profile.email || "", managerKey: profile.managerKey || "mudassar", managerName: profile.managerName || "MUDASSAR",
-      colorHex, phone, defaultCarId, photoUrl: profile.photoUrl || "", photoPath: profile.photoPath || "", active, systemUser: !!profile.systemUser,
-      operationalOnly: !!profile.operationalOnly, requestedLoginEmail: profile.requestedLoginEmail || profile.email || "", requestedPinInfo: profile.requestedPinInfo || "", updatedAt: serverTimestamp(), createdAt: profile.createdAt || serverTimestamp(),
-    }, { merge: true });
-    showToast("Driver guardado.");
-  } catch (error) { console.error(error); showToast("No se pudo guardar el driver."); }
+
+function extractHour(timeStr) {
+  if (!timeStr || !timeStr.includes(":")) return null;
+  const h = Number(timeStr.split(":")[0]);
+  return Number.isFinite(h) ? h : null;
 }
-function renderDriversStats() {
+
+function buildCoveredHours(startHour, endHour) {
+  const out = [];
+  let current = startHour;
+  let guard = 0;
+
+  while (guard < 30) {
+    out.push(current);
+    if (current === endHour) break;
+    current = (current + 1) % 24;
+    guard += 1;
+  }
+
+  return [...new Set(out)];
+}
+
+/* =========================================================
+   CHARTS
+========================================================= */
+function destroyChart(key) {
+  if (state.charts[key]) {
+    state.charts[key].destroy();
+    delete state.charts[key];
+  }
+}
+
+function destroyAllCharts() {
+  Object.keys(state.charts).forEach(destroyChart);
+}
+
+function upsertChart(key, canvasId, config) {
+  if (!window.Chart) return;
+  const canvas = $(canvasId);
+  if (!canvas) return;
+  destroyChart(key);
+  state.charts[key] = new window.Chart(canvas.getContext("2d"), config);
+}
+
+function buildBaseChartOptions() {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 250 },
+    interaction: { mode: "index", intersect: false },
+    plugins: {
+      legend: {
+        labels: {
+          color: getCssVar("--text"),
+          boxWidth: 12,
+          boxHeight: 12,
+        },
+      },
+      tooltip: {
+        enabled: true,
+      },
+    },
+    scales: {
+      x: {
+        ticks: { color: getCssVar("--muted") },
+        grid: { color: getCssVar("--border") },
+      },
+      y: {
+        ticks: { color: getCssVar("--muted") },
+        grid: { color: getCssVar("--border") },
+      },
+    },
+  };
+}
+
+function getDailySeries(rows, field, limit = 14) {
+  const groups = groupByKey(rows, (row) => row.dateKey);
+  const entries = Object.entries(groups)
+    .map(([date, dayRows]) => ({
+      date,
+      value: dayRows.reduce((sum, row) => sum + num(row[field]), 0),
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-limit);
+
+  return {
+    labels: entries.map((e) => e.date),
+    values: entries.map((e) => e.value),
+  };
+}
+
+function getDriverSeries(rows, field) {
+  const groups = groupByKey(rows, (row) => row.driverKey);
+  const entries = Object.entries(groups)
+    .map(([staffKey, driverRows]) => ({
+      label: getDriverProfile(staffKey)?.fullName || staffKey,
+      value: driverRows.reduce((sum, row) => sum + num(row[field]), 0),
+      color: getColorHex(getDriverProfile(staffKey)),
+    }))
+    .sort((a, b) => b.value - a.value);
+
+  return entries;
+}
+
+function renderDashboardCharts() {
+  const rows = filterRowsByRange(state.shifts, "month");
+
+  const incomeDaily = getDailySeries(rows, "totalIncome", 14);
+  const fuelDaily = getDailySeries(rows, "totalFuel", 14);
+  const driverSeries = getDriverSeries(rows, "totalIncome");
+
+  const summary = summarizeRows(rows);
+  const appsSeries = [
+    summary.totalTaximetro,
+    summary.totalCabify,
+    summary.totalFreeNow,
+    summary.totalUber,
+  ];
+
+  upsertChart("dashboardIncomeChart", "dashboardIncomeChart", {
+    type: "line",
+    data: {
+      labels: incomeDaily.labels,
+      datasets: [
+        {
+          label: "Income",
+          data: incomeDaily.values,
+          borderColor: getCssVar("--success"),
+          backgroundColor: "rgba(22,163,74,0.14)",
+          tension: 0.32,
+          fill: true,
+        },
+      ],
+    },
+    options: buildBaseChartOptions(),
+  });
+
+  upsertChart("dashboardFuelChart", "dashboardFuelChart", {
+    type: "bar",
+    data: {
+      labels: fuelDaily.labels,
+      datasets: [
+        {
+          label: "Fuel",
+          data: fuelDaily.values,
+          backgroundColor: getCssVar("--warning"),
+        },
+      ],
+    },
+    options: buildBaseChartOptions(),
+  });
+
+  upsertChart("dashboardDriverChart", "dashboardDriverChart", {
+    type: "bar",
+    data: {
+      labels: driverSeries.map((x) => x.label),
+      datasets: [
+        {
+          label: "Income",
+          data: driverSeries.map((x) => x.value),
+          backgroundColor: driverSeries.map((x) => x.color),
+        },
+      ],
+    },
+    options: buildBaseChartOptions(),
+  });
+
+  upsertChart("dashboardAppsChart", "dashboardAppsChart", {
+    type: "doughnut",
+    data: {
+      labels: ["Taxímetro", "Cabify", "Free Now", "Uber"],
+      datasets: [
+        {
+          data: appsSeries,
+          backgroundColor: [
+            getCssVar("--taximetro-text"),
+            getCssVar("--cabify-text"),
+            getCssVar("--freenow-text"),
+            getCssVar("--uber-text"),
+          ],
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          labels: { color: getCssVar("--text") },
+        },
+      },
+    },
+  });
+}
+
+function renderReportCharts() {
+  const rows = getReportRows();
+
+  const incomeDaily = getDailySeries(rows, "totalIncome", 20);
+  const fuelDaily = getDailySeries(rows, "totalFuel", 20);
+  const driverSeries = getDriverSeries(rows, "totalIncome");
+  const summary = summarizeRows(rows);
+
+  upsertChart("reportIncomeTrendChart", "reportIncomeTrendChart", {
+    type: "line",
+    data: {
+      labels: incomeDaily.labels,
+      datasets: [
+        {
+          label: "Income",
+          data: incomeDaily.values,
+          borderColor: getCssVar("--info"),
+          backgroundColor: "rgba(37,99,235,0.12)",
+          tension: 0.3,
+          fill: true,
+        },
+      ],
+    },
+    options: buildBaseChartOptions(),
+  });
+
+  upsertChart("reportFuelTrendChart", "reportFuelTrendChart", {
+    type: "line",
+    data: {
+      labels: fuelDaily.labels,
+      datasets: [
+        {
+          label: "Fuel",
+          data: fuelDaily.values,
+          borderColor: getCssVar("--warning"),
+          backgroundColor: "rgba(217,119,6,0.12)",
+          tension: 0.3,
+          fill: true,
+        },
+      ],
+    },
+    options: buildBaseChartOptions(),
+  });
+
+  upsertChart("reportAppsChart", "reportAppsChart", {
+    type: "bar",
+    data: {
+      labels: ["Taxímetro", "Cabify", "Free Now", "Uber"],
+      datasets: [
+        {
+          label: "Income",
+          data: [
+            summary.totalTaximetro,
+            summary.totalCabify,
+            summary.totalFreeNow,
+            summary.totalUber,
+          ],
+          backgroundColor: [
+            getCssVar("--taximetro-text"),
+            getCssVar("--cabify-text"),
+            getCssVar("--freenow-text"),
+            getCssVar("--uber-text"),
+          ],
+        },
+      ],
+    },
+    options: buildBaseChartOptions(),
+  });
+
+  upsertChart("reportDriversChart", "reportDriversChart", {
+    type: "bar",
+    data: {
+      labels: driverSeries.map((x) => x.label),
+      datasets: [
+        {
+          label: "Income",
+          data: driverSeries.map((x) => x.value),
+          backgroundColor: driverSeries.map((x) => x.color),
+        },
+      ],
+    },
+    options: buildBaseChartOptions(),
+  });
+}
+
+/* =========================================================
+   DRIVERS VIEW
+========================================================= */
+function renderDriversView() {
   const profiles = getVisibleProfiles();
-  const drivers = profiles.filter((p) => p.role === "driver").length;
-  const managers = profiles.filter((p) => p.role === "manager").length;
-  const withPhotos = profiles.filter((p) => p.photoUrl).length;
-  const active = profiles.filter((p) => p.active !== false).length;
-  $("driversStats").innerHTML = [statCard("Perfiles", String(profiles.length), "Visibles"), statCard("Drivers", String(drivers), "Conductores"), statCard("Managers", String(managers), "Gestión"), statCard("Con foto", String(withPhotos), "Imagen subida"), statCard("Activos", String(active), "Disponibles")].join("");
-}
-function renderDriversGrid() {
-  const profiles = getVisibleProfiles();
-  $("driversGrid").innerHTML = profiles.map((profile) => renderDriverCard(profile)).join("");
-  if (state.currentUser?.role !== "manager") hide(document.querySelector(".driver-create-card")); else show(document.querySelector(".driver-create-card"));
+  const activeCount = profiles.filter((p) => p.status !== "inactive" && p.active !== false).length;
+  const managerCount = profiles.filter((p) => p.role === "manager").length;
+  const driverCount = profiles.filter((p) => p.role === "driver").length;
+
+  $("driversStats").innerHTML = [
+    statCard("Profiles", String(profiles.length), "Visible"),
+    statCard("Active", String(activeCount), "Enabled"),
+    statCard("Drivers", String(driverCount), "Driver accounts"),
+    statCard("Managers", String(managerCount), "Manager accounts"),
+  ].join("");
+
+  $("driversGrid").innerHTML = profiles.length
+    ? profiles.map((profile) => renderDriverCard(profile)).join("")
+    : `<div class="center-empty">No drivers found.</div>`;
+
   attachDriverCardEvents();
+
+  if (!isManager()) {
+    hide($("openAddDriverBtn"));
+  } else {
+    show($("openAddDriverBtn"));
+  }
 }
+
 function renderDriverCard(profile) {
-  const editable = state.currentUser?.role === "manager" || state.currentUser?.staffKey === profile.staffKey;
-  const carOptions = [`<option value="">Sin coche por defecto</option>`, ...getActiveCarsList().map((car) => `<option value="${car.id}" ${profile.defaultCarId === car.id ? "selected" : ""}>${escapeHtml(getCarLabel(car))}</option>`)].join("");
-  return `<div class="card profile-card" data-driver-card="${escapeHtml(profile.staffKey)}"><div class="profile-color-bar" style="background:${escapeHtml(profile.colorHex || '#1d4ed8')}"></div><div class="profile-card-head">${getProfileImageHtml(profile, 'large')}<div><div class="profile-name">${escapeHtml(profile.fullName)}</div><div class="profile-role">${escapeHtml(profile.role === 'manager' ? 'Manager / Driver' : 'Driver')}</div>${getDriverBadgeHtml(profile)}</div></div><div class="profile-meta-list"><div>Email: ${escapeHtml(profile.email || '-')}</div><div>Manager: ${escapeHtml(profile.managerName || '-')}</div><div>Acceso: ${escapeHtml(profile.systemUser ? 'Login real Firebase' : 'Perfil operativo')}</div></div><div class="grid-2"><label><span>Nombre</span><input type="text" data-driver-name="${escapeHtml(profile.staffKey)}" value="${escapeHtml(profile.fullName || '')}" ${editable && !profile.systemUser ? '' : 'disabled'} /></label><label><span>Teléfono</span><input type="text" data-driver-phone="${escapeHtml(profile.staffKey)}" value="${escapeHtml(profile.phone || '')}" ${editable ? '' : 'disabled'} /></label><label><span>Coche por defecto</span><select data-driver-default-car="${escapeHtml(profile.staffKey)}" ${editable ? '' : 'disabled'}>${carOptions}</select></label><label><span>Color</span><input type="color" data-driver-color="${escapeHtml(profile.staffKey)}" value="${escapeHtml(profile.colorHex || '#1d4ed8')}" ${editable ? '' : 'disabled'} /></label></div><div class="grid-2"><label><span>Activo</span><input type="checkbox" data-driver-active="${escapeHtml(profile.staffKey)}" ${profile.active !== false ? 'checked' : ''} ${editable ? '' : 'disabled'} /></label></div>${editable ? `<div class="profile-actions"><button class="secondary-btn" type="button" data-manage-photo="${escapeHtml(profile.staffKey)}">Gestionar foto</button><button class="primary-btn" type="button" data-save-driver="${escapeHtml(profile.staffKey)}">Guardar driver</button></div>` : ''}</div>`;
+  const carLabel = getDefaultCarLabel(profile) || "No default car";
+  const editable = isManager() || state.currentStaffKey === profile.staffKey;
+  const title = profile.role === "manager" ? "Manager / Driver" : "Driver";
+
+  return `
+    <div class="card profile-card">
+      <div class="profile-color-bar" style="background:${esc(getColorHex(profile))};"></div>
+
+      <div class="profile-card-head">
+        ${photoHtml(profile, false)}
+        <div class="profile-info">
+          <div class="profile-name">${esc(profile.fullName)}</div>
+          <div class="profile-role">${esc(title)}</div>
+          <div class="driver-badge" style="${buildDriverBadgeStyle(profile)}">${esc(profile.fullName)}</div>
+        </div>
+      </div>
+
+      <div class="profile-meta-list">
+        <div>Email: ${esc(profile.email || "-")}</div>
+        <div>Phone: ${esc(profile.phone || "-")}</div>
+        <div>Default car: ${esc(carLabel)}</div>
+        <div>Status: ${esc(profile.status || "active")}</div>
+      </div>
+
+      <div class="profile-actions">
+        ${
+          editable
+            ? `
+              <button class="secondary-btn" type="button" data-driver-photo="${esc(profile.staffKey)}">Photo</button>
+              <button class="primary-btn" type="button" data-driver-edit="${esc(profile.staffKey)}">Edit</button>
+            `
+            : ""
+        }
+      </div>
+    </div>
+  `;
 }
+
 function attachDriverCardEvents() {
-  document.querySelectorAll("[data-save-driver]").forEach((btn) => btn.onclick = () => saveDriverProfile(btn.getAttribute("data-save-driver")));
-  document.querySelectorAll("[data-manage-photo]").forEach((btn) => btn.onclick = () => openPhotoModal(btn.getAttribute("data-manage-photo")));
+  document.querySelectorAll("[data-driver-edit]").forEach((btn) => {
+    btn.onclick = () => {
+      const staffKey = btn.getAttribute("data-driver-edit");
+      openDriverModal("edit", staffKey);
+    };
+  });
+
+  document.querySelectorAll("[data-driver-photo]").forEach((btn) => {
+    btn.onclick = () => {
+      const staffKey = btn.getAttribute("data-driver-photo");
+      openPhotoModal(staffKey);
+    };
+  });
 }
 
-async function handleCreateCar() {
-  if (state.currentUser?.role !== "manager") return showToast("Solo el manager puede crear coches.");
-  try {
-    const plate = $("newCarPlate").value.trim(); const model = $("newCarModel").value.trim(); const alias = $("newCarAlias").value.trim(); const status = $("newCarStatus").value; const currentKm = num($("newCarKm").value); const defaultDriverKey = $("newCarDriverKey").value; const itv = $("newCarItv").value; const insurance = $("newCarInsurance").value; const notes = $("newCarNotes").value.trim();
-    if (!plate && !alias) throw new Error("Introduce al menos matrícula o alias.");
-    await setDoc(doc(db, "cars", randomId("car")), { plate, model, alias, status, currentKm, defaultDriverKey, itv, insurance, notes, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-    $("newCarForm").reset(); $("newCarStatus").value = "active"; showToast("Coche creado.");
-  } catch (error) { console.error(error); showToast(error.message || "No se pudo crear el coche."); }
-}
-async function saveCar(carId) {
-  try {
-    await updateDoc(doc(db, "cars", carId), {
-      plate: document.querySelector(`[data-car-plate="${carId}"]`)?.value?.trim() || "",
-      model: document.querySelector(`[data-car-model="${carId}"]`)?.value?.trim() || "",
-      alias: document.querySelector(`[data-car-alias="${carId}"]`)?.value?.trim() || "",
-      status: document.querySelector(`[data-car-status="${carId}"]`)?.value || "active",
-      currentKm: num(document.querySelector(`[data-car-km="${carId}"]`)?.value),
-      defaultDriverKey: document.querySelector(`[data-car-driver="${carId}"]`)?.value || "",
-      itv: document.querySelector(`[data-car-itv="${carId}"]`)?.value || "",
-      insurance: document.querySelector(`[data-car-insurance="${carId}"]`)?.value || "",
-      notes: document.querySelector(`[data-car-notes="${carId}"]`)?.value?.trim() || "",
-      updatedAt: serverTimestamp(),
-    });
-    showToast("Coche guardado.");
-  } catch (error) { console.error(error); showToast("No se pudo guardar el coche."); }
-}
-function renderCarsStats() {
-  const cars = getAllCarsList();
-  $("carsStats").innerHTML = [statCard("Coches", String(cars.length), "Registrados"), statCard("Activos", String(cars.filter(c => c.status === 'active').length), "Disponibles"), statCard("Taller", String(cars.filter(c => c.status === 'workshop').length), "Fuera de servicio"), statCard("Inactivos", String(cars.filter(c => c.status === 'inactive').length), "No operativos")].join("");
-}
-function renderCarsGrid() {
-  const cars = getAllCarsList();
-  $("carsGrid").innerHTML = cars.length ? cars.map((car) => renderCarCard(car)).join("") : `<div class="center-empty">No hay coches todavía.</div>`;
-  if (state.currentUser?.role !== "manager") hide(document.querySelector(".car-create-card")); else show(document.querySelector(".car-create-card"));
-  attachCarCardEvents();
-}
-function renderCarCard(car) {
-  const editable = state.currentUser?.role === "manager";
-  const driverOptions = [`<option value="">Sin conductor por defecto</option>`, ...getSelectableDrivers().map((profile) => `<option value="${profile.staffKey}" ${car.defaultDriverKey === profile.staffKey ? 'selected' : ''}>${escapeHtml(profile.fullName)}</option>`)].join("");
-  const statusColor = car.status === 'active' ? '#16a34a' : car.status === 'workshop' ? '#d97706' : '#6b7280';
-  return `<div class="card profile-card" data-car-card="${escapeHtml(car.id)}"><div class="profile-color-bar" style="background:${escapeHtml(statusColor)}"></div><div class="profile-card-head"><div class="big-avatar">${escapeHtml((car.alias || car.plate || 'C').slice(0,1).toUpperCase())}</div><div><div class="profile-name">${escapeHtml(car.alias || 'Car')}</div><div class="profile-role">${escapeHtml(car.plate || '-')}</div><div class="muted">${escapeHtml(car.model || '-')}</div></div></div><div class="grid-2"><label><span>Matrícula</span><input type="text" data-car-plate="${escapeHtml(car.id)}" value="${escapeHtml(car.plate || '')}" ${editable ? '' : 'disabled'} /></label><label><span>Modelo</span><input type="text" data-car-model="${escapeHtml(car.id)}" value="${escapeHtml(car.model || '')}" ${editable ? '' : 'disabled'} /></label><label><span>Alias</span><input type="text" data-car-alias="${escapeHtml(car.id)}" value="${escapeHtml(car.alias || '')}" ${editable ? '' : 'disabled'} /></label><label><span>Estado</span><select data-car-status="${escapeHtml(car.id)}" ${editable ? '' : 'disabled'}><option value="active" ${car.status === 'active' ? 'selected' : ''}>Activo</option><option value="workshop" ${car.status === 'workshop' ? 'selected' : ''}>Taller</option><option value="inactive" ${car.status === 'inactive' ? 'selected' : ''}>Inactivo</option></select></label><label><span>KM actual</span><input type="number" step="0.1" min="0" data-car-km="${escapeHtml(car.id)}" value="${escapeHtml(String(num(car.currentKm)))}" ${editable ? '' : 'disabled'} /></label><label><span>Driver por defecto</span><select data-car-driver="${escapeHtml(car.id)}" ${editable ? '' : 'disabled'}>${driverOptions}</select></label><label><span>ITV</span><input type="date" data-car-itv="${escapeHtml(car.id)}" value="${escapeHtml(car.itv || '')}" ${editable ? '' : 'disabled'} /></label><label><span>Seguro</span><input type="date" data-car-insurance="${escapeHtml(car.id)}" value="${escapeHtml(car.insurance || '')}" ${editable ? '' : 'disabled'} /></label></div><label><span>Notas</span><input type="text" data-car-notes="${escapeHtml(car.id)}" value="${escapeHtml(car.notes || '')}" ${editable ? '' : 'disabled'} /></label>${editable ? `<div class="profile-actions"><button class="primary-btn" type="button" data-save-car="${escapeHtml(car.id)}">Guardar coche</button></div>` : ''}</div>`;
-}
-function attachCarCardEvents() { document.querySelectorAll("[data-save-car]").forEach((btn) => btn.onclick = () => saveCar(btn.getAttribute("data-save-car"))); }
+$("openAddDriverBtn")?.addEventListener("click", () => openDriverModal("new", ""));
 
-function openPhotoModal(staffKey) {
-  const profile = getProfileByKey(staffKey); if (!profile) return;
-  state.photoModalStaffKey = staffKey; state.pendingPhotoFile = null; revokePendingPreview();
-  $("photoModalTitle").textContent = `${profile.fullName} — Foto del driver`;
-  if (profile.photoUrl) { $("photoPreviewImg").src = profile.photoUrl; show($("photoPreviewImg")); hide($("photoPreviewAvatar")); }
-  else { hide($("photoPreviewImg")); $("photoPreviewAvatar").textContent = initials(profile.fullName); show($("photoPreviewAvatar")); }
-  $("driverPhotoUploadInput").value = ""; $("driverPhotoCameraInput").value = ""; show($("photoModal")); $("photoModal").setAttribute("aria-hidden", "false");
+function openDriverModal(mode, staffKey) {
+  state.editingDriverKey = staffKey || "";
+  const profile = staffKey ? getDriverProfile(staffKey) : null;
+
+  $("driverFormMode").value = mode;
+  $("driverOriginalStaffKey").value = staffKey || "";
+  $("driverModalTitle").textContent = mode === "new" ? "Add New Driver" : "Edit Driver";
+
+  $("driverFullNameInput").value = profile?.fullName || "";
+  $("driverRoleInput").value = profile?.role || "driver";
+  $("driverPinInput").value = "";
+  $("driverEmailInput").value = profile?.email || "";
+  $("driverPhoneInput").value = profile?.phone || "";
+  $("driverDefaultCarInput").value = profile?.defaultCarId || "";
+  $("driverColorInput").value = profile?.colorHex || "#1d4ed8";
+  $("driverStaffKeyInput").value = profile?.staffKey || "";
+  $("driverStatusInput").value = profile?.status || "active";
+
+  const editing = mode === "edit";
+  $("driverEmailInput").disabled = editing;
+  $("driverRoleInput").disabled = editing;
+  $("driverStaffKeyInput").disabled = editing;
+  $("driverPinInput").disabled = editing;
+  $("driverPinInput").placeholder = editing ? "PIN change not available here" : "Required";
+
+  show($("driverModal"));
+  $("driverModal").setAttribute("aria-hidden", "false");
 }
-function closePhotoModal() { revokePendingPreview(); state.photoModalStaffKey = null; state.pendingPhotoFile = null; $("driverPhotoUploadInput").value = ""; $("driverPhotoCameraInput").value = ""; hide($("photoModal")); $("photoModal").setAttribute("aria-hidden", "true"); }
-function revokePendingPreview() { if (state.pendingPhotoPreviewUrl) { URL.revokeObjectURL(state.pendingPhotoPreviewUrl); state.pendingPhotoPreviewUrl = ""; } }
-function handleSelectedPhotoFile(file) { if (!file || !state.photoModalStaffKey) return; state.pendingPhotoFile = file; revokePendingPreview(); state.pendingPhotoPreviewUrl = URL.createObjectURL(file); $("photoPreviewImg").src = state.pendingPhotoPreviewUrl; show($("photoPreviewImg")); hide($("photoPreviewAvatar")); }
-async function saveDriverPhoto() {
-  if (!state.photoModalStaffKey || !state.pendingPhotoFile) return showToast("Selecciona una foto primero.");
+
+function closeDriverModal() {
+  hide($("driverModal"));
+  $("driverModal").setAttribute("aria-hidden", "true");
+  state.editingDriverKey = "";
+  $("driverForm").reset();
+}
+
+$("closeDriverModalBtn")?.addEventListener("click", closeDriverModal);
+$("cancelDriverModalBtn")?.addEventListener("click", closeDriverModal);
+document.querySelectorAll("[data-close-driver-modal]").forEach((el) => {
+  el.addEventListener("click", closeDriverModal);
+});
+
+$("driverForm")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
   try {
-    const profile = getProfileByKey(state.photoModalStaffKey); if (!profile) throw new Error("Driver no encontrado.");
-    if (state.mode === "local") {
-      const dataUrl = await blobToDataUrl(state.pendingPhotoFile);
-      await setDoc(doc(db, "driverProfiles", profile.staffKey), { photoUrl: dataUrl, photoPath: "local-data-url", updatedAt: serverTimestamp() }, { merge: true });
+    if (!isManager()) throw new Error("Only manager can save drivers.");
+
+    const mode = $("driverFormMode").value;
+    if (mode === "new") {
+      await createNewDriverFromModal();
+      showToast("Driver created.");
     } else {
-      if (profile.photoPath) { try { await deleteObject(storageRef(storage, profile.photoPath)); } catch (_) {} }
-      const ext = getFileExtension(state.pendingPhotoFile.name || "jpg");
-      const path = `driverPhotos/${profile.staffKey}/photo_${Date.now()}.${ext}`;
-      const ref = storageRef(storage, path);
-      await uploadBytes(ref, state.pendingPhotoFile);
-      const url = await getDownloadURL(ref);
-      await setDoc(doc(db, "driverProfiles", profile.staffKey), { photoUrl: url, photoPath: path, updatedAt: serverTimestamp() }, { merge: true });
+      await updateExistingDriverFromModal();
+      showToast("Driver updated.");
     }
-    showToast("Foto guardada."); closePhotoModal();
-  } catch (error) { console.error(error); showToast("No se pudo guardar la foto."); }
-}
-async function removeDriverPhoto() {
-  if (!state.photoModalStaffKey) return;
-  try {
-    const profile = getProfileByKey(state.photoModalStaffKey); if (!profile) throw new Error("Driver no encontrado.");
-    if (state.mode === "cloud" && profile.photoPath && profile.photoPath !== "local-data-url") { try { await deleteObject(storageRef(storage, profile.photoPath)); } catch (_) {} }
-    await setDoc(doc(db, "driverProfiles", profile.staffKey), { photoUrl: "", photoPath: "", updatedAt: serverTimestamp() }, { merge: true });
-    showToast("Foto eliminada."); closePhotoModal();
-  } catch (error) { console.error(error); showToast("No se pudo eliminar la foto."); }
-}
-function getFileExtension(filename) { const ext = String(filename).split('.').pop()?.toLowerCase() || 'jpg'; return ext.replace(/[^a-z0-9]/g, '') || 'jpg'; }
-function blobToDataUrl(blob) { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result || '')); reader.onerror = reject; reader.readAsDataURL(blob); }); }
-async function imageUrlToDataUrl(url) { try { const response = await fetch(url); const blob = await response.blob(); return await blobToDataUrl(blob); } catch { return ""; } }
 
-async function syncPendingLocalShifts() {
-  if (state.mode !== "cloud" || !state.authUser) return showToast("Inicia sesión cloud para sincronizar.");
-  const pending = getPendingLocalShifts();
-  if (!pending.length) return showToast("No hay turnos locales pendientes.");
-  try {
-    for (const row of pending) {
-      const payload = { ...row };
-      delete payload.id; delete payload.localOnly; delete payload.createdAtLocal;
-      payload.createdByUid = state.authUser.uid;
-      payload.updatedAt = serverTimestamp();
-      payload.createdAt = serverTimestamp();
-      await addDoc(collection(db, "shifts"), payload);
-    }
-    setPendingLocalShifts([]);
-    showToast("Turnos locales sincronizados.");
-  } catch (error) { console.error(error); showToast("No se pudieron sincronizar todos los turnos."); }
+    closeDriverModal();
+  } catch (error) {
+    console.error(error);
+    showToast(error.message || "Could not save driver.");
+  }
+});
+
+async function createNewDriverFromModal() {
+  const fullName = $("driverFullNameInput").value.trim();
+  const role = $("driverRoleInput").value;
+  const pin = $("driverPinInput").value.trim();
+  const email = $("driverEmailInput").value.trim().toLowerCase();
+  const phone = $("driverPhoneInput").value.trim();
+  const defaultCarId = $("driverDefaultCarInput").value;
+  const colorHex = $("driverColorInput").value;
+  const staffKey = normalizeStaffKey($("driverStaffKeyInput").value);
+  const status = $("driverStatusInput").value;
+
+  if (!fullName) throw new Error("Full name is required.");
+  if (!email) throw new Error("Email is required.");
+  if (!pin || pin.length < 4) throw new Error("PIN must have at least 4 digits.");
+  if (!staffKey) throw new Error("Alias / key is required.");
+
+  if (state.publicProfiles[staffKey]) {
+    throw new Error("Staff key already exists.");
+  }
+
+  const secondaryAuth = getSecondaryAuth();
+  await createUserWithEmailAndPassword(secondaryAuth, email, passwordFromPin(pin));
+  await signOut(secondaryAuth);
+
+  const managerKeyValue = role === "manager" ? staffKey : state.currentStaff.staffKey;
+  const managerNameValue = role === "manager" ? fullName : state.currentStaff.fullName;
+
+  await setDoc(doc(db, "publicProfiles", staffKey), {
+    staffKey,
+    fullName,
+    email,
+    role,
+    active: status !== "inactive",
+    status,
+    authMode: "pin",
+    managerKey: managerKeyValue,
+    managerName: managerNameValue,
+    colorHex,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  await setDoc(doc(db, "driverProfiles", staffKey), {
+    staffKey,
+    fullName,
+    email,
+    role,
+    managerKey: managerKeyValue,
+    managerName: managerNameValue,
+    colorHex,
+    phone,
+    defaultCarId,
+    photoUrl: "",
+    photoPath: "",
+    status,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
 }
+
+async function updateExistingDriverFromModal() {
+  const originalStaffKey = $("driverOriginalStaffKey").value;
+  const original = getDriverProfile(originalStaffKey);
+  if (!original) throw new Error("Driver not found.");
+
+  const fullName = $("driverFullNameInput").value.trim();
+  const phone = $("driverPhoneInput").value.trim();
+  const defaultCarId = $("driverDefaultCarInput").value;
+  const colorHex = $("driverColorInput").value;
+  const status = $("driverStatusInput").value;
+
+  const managerKeyValue = original.role === "manager" ? original.staffKey : original.managerKey || state.currentStaff.staffKey;
+  const managerNameValue = original.role === "manager" ? fullName : original.managerName || state.currentStaff.fullName;
+
+  await setDoc(
+    doc(db, "publicProfiles", originalStaffKey),
+    {
+      fullName,
+      active: status !== "inactive",
+      status,
+      colorHex,
+      managerKey: managerKeyValue,
+      managerName: managerNameValue,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  await setDoc(
+    doc(db, "driverProfiles", originalStaffKey),
+    {
+      fullName,
+      phone,
+      defaultCarId,
+      colorHex,
+      status,
+      managerKey: managerKeyValue,
+      managerName: managerNameValue,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
+
+/* =========================================================
+   CARS VIEW
+========================================================= */
+function renderCarsView() {
+  const cars = Object.entries(state.cars)
+    .map(([id, car]) => ({ id, ...car }))
+    .sort((a, b) => buildCarLabel(a).localeCompare(buildCarLabel(b)));
+
+  const activeCount = cars.filter((car) => car.status === "active").length;
+  const maintenanceCount = cars.filter((car) => car.status === "maintenance").length;
+
+  $("carsStats").innerHTML = [
+    statCard("Cars", String(cars.length), "Total"),
+    statCard("Active", String(activeCount), "Available"),
+    statCard("Maintenance", String(maintenanceCount), "Workshop / maintenance"),
+    statCard("Inactive", String(cars.filter((c) => c.status === "inactive").length), "Disabled"),
+  ].join("");
+
+  $("carsGrid").innerHTML = cars.length
+    ? cars.map((car) => renderCarCard(car)).join("")
+    : `<div class="center-empty">No cars found.</div>`;
+
+  attachCarCardEvents();
+
+  if (!isManager()) {
+    hide($("openAddCarBtn"));
+  } else {
+    show($("openAddCarBtn"));
+  }
+}
+
+function renderCarCard(car) {
+  const defaultDriver = car.defaultDriverKey ? getDriverProfile(car.defaultDriverKey) : null;
+  const driverLabel = defaultDriver ? defaultDriver.fullName : "No default driver";
+
+  return `
+    <div class="card car-card">
+      <div class="car-card-head">
+        <div class="circle-fallback" style="background:${esc(getCssVar("--panel-2"))};color:${esc(getCssVar("--text"))};">
+          ${esc((car.plate || "C").slice(0, 2).toUpperCase())}
+        </div>
+        <div class="car-info">
+          <div class="profile-name">${esc(buildCarLabel(car) || "Car")}</div>
+          <div class="profile-role">${esc(car.status || "active")}</div>
+        </div>
+      </div>
+
+      <div class="car-meta-list">
+        <div>Plate: ${esc(car.plate || "-")}</div>
+        <div>Brand / Model: ${esc([car.brand, car.model].filter(Boolean).join(" ") || "-")}</div>
+        <div>Default driver: ${esc(driverLabel)}</div>
+        <div>Current KM: ${num(car.currentKm).toFixed(1)}</div>
+        <div>Notes: ${esc(car.notes || "-")}</div>
+      </div>
+
+      ${
+        isManager()
+          ? `
+            <div class="car-actions">
+              <button class="primary-btn" type="button" data-car-edit="${esc(car.id)}">Edit</button>
+            </div>
+          `
+          : ""
+      }
+    </div>
+  `;
+}
+
+function attachCarCardEvents() {
+  document.querySelectorAll("[data-car-edit]").forEach((btn) => {
+    btn.onclick = () => {
+      const carId = btn.getAttribute("data-car-edit");
+      openCarModal("edit", carId);
+    };
+  });
+}
+
+$("openAddCarBtn")?.addEventListener("click", () => openCarModal("new", ""));
+
+function openCarModal(mode, carId) {
+  state.editingCarId = carId || "";
+  const car = carId ? getCarById(carId) : null;
+
+  $("carFormMode").value = mode;
+  $("carOriginalId").value = carId || "";
+  $("carModalTitle").textContent = mode === "new" ? "Add New Car" : "Edit Car";
+
+  $("carPlateInput").value = car?.plate || "";
+  $("carBrandInput").value = car?.brand || "";
+  $("carModelInput").value = car?.model || "";
+  $("carAliasInput").value = car?.alias || "";
+  $("carStatusInput").value = car?.status || "active";
+  $("carDefaultDriverInput").value = car?.defaultDriverKey || "";
+  $("carCurrentKmInput").value = num(car?.currentKm).toString();
+  $("carNotesInput").value = car?.notes || "";
+
+  show($("carModal"));
+  $("carModal").setAttribute("aria-hidden", "false");
+}
+
+function closeCarModal() {
+  hide($("carModal"));
+  $("carModal").setAttribute("aria-hidden", "true");
+  state.editingCarId = "";
+  $("carForm").reset();
+}
+
+$("closeCarModalBtn")?.addEventListener("click", closeCarModal);
+$("cancelCarModalBtn")?.addEventListener("click", closeCarModal);
+document.querySelectorAll("[data-close-car-modal]").forEach((el) => {
+  el.addEventListener("click", closeCarModal);
+});
+
+$("carForm")?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  try {
+    if (!isManager()) throw new Error("Only manager can save cars.");
+
+    if ($("carFormMode").value === "new") {
+      await createCarFromModal();
+      showToast("Car created.");
+    } else {
+      await updateCarFromModal();
+      showToast("Car updated.");
+    }
+
+    closeCarModal();
+  } catch (error) {
+    console.error(error);
+    showToast(error.message || "Could not save car.");
+  }
+});
+
+async function createCarFromModal() {
+  const payload = getCarFormPayload();
+  await addDoc(collection(db, "cars"), payload);
+}
+
+async function updateCarFromModal() {
+  const carId = $("carOriginalId").value;
+  if (!carId) throw new Error("Missing car ID.");
+
+  const payload = getCarFormPayload();
+  await setDoc(doc(db, "cars", carId), payload, { merge: true });
+}
+
+function getCarFormPayload() {
+  const plate = $("carPlateInput").value.trim();
+  const brand = $("carBrandInput").value.trim();
+  const model = $("carModelInput").value.trim();
+  const alias = $("carAliasInput").value.trim();
+  const status = $("carStatusInput").value;
+  const defaultDriverKey = $("carDefaultDriverInput").value;
+  const currentKm = num($("carCurrentKmInput").value);
+  const notes = $("carNotesInput").value.trim();
+
+  if (!plate) throw new Error("Plate is required.");
+
+  return {
+    plate,
+    brand,
+    model,
+    alias,
+    status,
+    defaultDriverKey,
+    currentKm,
+    notes,
+    updatedAt: serverTimestamp(),
+    createdAt: serverTimestamp(),
+  };
+}
+
+/* =========================================================
+   PHOTO MODAL
+========================================================= */
+function openPhotoModal(staffKey) {
+  const profile = getDriverProfile(staffKey);
+  if (!profile) return;
+
+  state.photoModalStaffKey = staffKey;
+  state.pendingPhotoFile = null;
+  revokePendingPreview();
+
+  $("photoModalTitle").textContent = `${profile.fullName} — Driver Photo`;
+
+  setCirclePhoto(
+    $("photoPreviewImg"),
+    $("photoPreviewAvatar"),
+    profile.photoUrl,
+    profile.fullName
+  );
+
+  $("driverPhotoUploadInput").value = "";
+  $("driverPhotoCameraInput").value = "";
+
+  show($("photoModal"));
+  $("photoModal").setAttribute("aria-hidden", "false");
+}
+
+function closePhotoModal() {
+  revokePendingPreview();
+  state.photoModalStaffKey = "";
+  state.pendingPhotoFile = null;
+  $("driverPhotoUploadInput").value = "";
+  $("driverPhotoCameraInput").value = "";
+  hide($("photoModal"));
+  $("photoModal").setAttribute("aria-hidden", "true");
+}
+
+$("closePhotoModalBtn")?.addEventListener("click", closePhotoModal);
+document.querySelectorAll("[data-close-photo-modal]").forEach((el) => {
+  el.addEventListener("click", closePhotoModal);
+});
+
+$("driverPhotoUploadInput")?.addEventListener("change", (e) => {
+  handleSelectedPhotoFile(e.target.files?.[0] || null);
+});
+
+$("driverPhotoCameraInput")?.addEventListener("change", (e) => {
+  handleSelectedPhotoFile(e.target.files?.[0] || null);
+});
+
+function handleSelectedPhotoFile(file) {
+  if (!file || !state.photoModalStaffKey) return;
+  state.pendingPhotoFile = file;
+  revokePendingPreview();
+  state.pendingPhotoPreviewUrl = URL.createObjectURL(file);
+
+  $("photoPreviewImg").src = state.pendingPhotoPreviewUrl;
+  show($("photoPreviewImg"));
+  hide($("photoPreviewAvatar"));
+}
+
+$("removeDriverPhotoBtn")?.addEventListener("click", async () => {
+  try {
+    const staffKey = state.photoModalStaffKey;
+    if (!staffKey) return;
+
+    const profile = getDriverProfile(staffKey);
+    if (!profile) throw new Error("Profile not found.");
+
+    if (profile.photoPath) {
+      try {
+        await deleteObject(storageRef(storage, profile.photoPath));
+      } catch (error) {
+        console.warn("Delete old photo warning:", error);
+      }
+    }
+
+    await setDoc(
+      doc(db, "driverProfiles", staffKey),
+      {
+        photoUrl: "",
+        photoPath: "",
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    showToast("Photo removed.");
+    closePhotoModal();
+  } catch (error) {
+    console.error(error);
+    showToast("Could not remove photo.");
+  }
+});
+
+$("saveDriverPhotoBtn")?.addEventListener("click", async () => {
+  try {
+    const staffKey = state.photoModalStaffKey;
+    if (!staffKey) throw new Error("No selected driver.");
+    if (!state.pendingPhotoFile) throw new Error("Select a photo first.");
+
+    const profile = getDriverProfile(staffKey);
+    if (!profile) throw new Error("Profile not found.");
+
+    if (profile.photoPath) {
+      try {
+        await deleteObject(storageRef(storage, profile.photoPath));
+      } catch (error) {
+        console.warn("Delete previous photo warning:", error);
+      }
+    }
+
+    const ext = getFileExtension(state.pendingPhotoFile.name || "jpg");
+    const path = `driverPhotos/${staffKey}/photo_${Date.now()}.${ext}`;
+    const ref = storageRef(storage, path);
+
+    await uploadBytes(ref, state.pendingPhotoFile);
+    const url = await getDownloadURL(ref);
+
+    await setDoc(
+      doc(db, "driverProfiles", staffKey),
+      {
+        photoUrl: url,
+        photoPath: path,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    showToast("Photo saved.");
+    closePhotoModal();
+  } catch (error) {
+    console.error(error);
+    showToast(error.message || "Could not save photo.");
+  }
+});
+
+function getFileExtension(filename) {
+  const ext = String(filename).split(".").pop()?.toLowerCase() || "jpg";
+  return ext.replace(/[^a-z0-9]/g, "") || "jpg";
+}
+
+/* =========================================================
+   PDF REPORT EXPORT
+========================================================= */
+$("exportReportPdfBtn")?.addEventListener("click", async () => {
+  try {
+    await exportCurrentReportPdf();
+  } catch (error) {
+    console.error(error);
+    showToast("Could not export PDF.");
+  }
+});
 
 async function exportCurrentReportPdf() {
-  try {
-    const rows = getReportRows(); const summary = summarizeRows(rows);
-    const range = $("reportRange").value;
-    const driverKey = state.currentUser?.role === "manager" ? $("reportDriverFilter").value : state.currentUser?.staffKey || "all";
-    const carFilter = $("reportCarFilter").value.trim();
-    const selectedProfile = driverKey && driverKey !== "all" ? getProfileByKey(driverKey) : null;
-    const { jsPDF } = await import("https://cdn.jsdelivr.net/npm/jspdf@2.5.1/+esm");
-    const pdf = new jsPDF({ unit: "mm", format: "a4" });
-    const page = { width: pdf.internal.pageSize.getWidth(), height: pdf.internal.pageSize.getHeight(), margin: 14 };
-    let y = 16;
-    pdf.setFont("helvetica", "bold"); pdf.setFontSize(20); pdf.text("TAXI FLEET REPORT", page.margin, y); y += 8;
-    pdf.setFont("helvetica", "normal"); pdf.setFontSize(10);
-    pdf.text(`Generado: ${dateTimeLabel()}`, page.margin, y); y += 6;
-    pdf.text(`Periodo: ${range.toUpperCase()}`, page.margin, y); y += 6;
-    pdf.text(`Driver: ${selectedProfile ? selectedProfile.fullName : 'GLOBAL'}`, page.margin, y); y += 6;
-    pdf.text(`Filtro coche: ${carFilter || 'ALL'}`, page.margin, y); y += 10;
-    if (selectedProfile) { y = await drawPdfDriverBlock(pdf, selectedProfile, page.margin, y, page.width - page.margin * 2); y += 8; }
-    y = drawPdfSectionTitle(pdf, 'RESUMEN', page.margin, y);
-    y = drawPdfSummaryGrid(pdf, [["Ingresos", money(summary.totalIncome)],["Fuel", money(summary.totalFuel)],["Spending", money(summary.totalSpending)],["Neto", money(summary.netProfit)],["KM", summary.totalKm.toFixed(1)],["KM/€", summary.kmPerEuro.toFixed(3)],["€/hora", summary.eurPerHour.toFixed(2)],["Turnos", String(summary.count)]], page.margin, y, page.width - page.margin * 2); y += 6;
-    y = drawPdfSectionTitle(pdf, 'BREAKDOWN', page.margin, y);
-    y = drawPdfSummaryGrid(pdf, [["Taxímetro", money(summary.totalTaximetro)],["Cabify", money(summary.totalCabify)],["Free Now", money(summary.totalFreeNow)],["Uber", money(summary.totalUber)],["Fuel", money(summary.totalFuel)],["Gastos", money(summary.totalExpenses)],["Mantenimiento", money(summary.totalMaintenance)],["Apps", money(summary.totalApps)]], page.margin, y, page.width - page.margin * 2); y += 6;
-    const peakDay = getBestDay(rows), peakHour = getPeakHour(rows), fuelDay = getHighestFuelDay(rows);
-    y = drawPdfSectionTitle(pdf, 'PICOS', page.margin, y);
-    y = drawPdfTextList(pdf, [`Peak day: ${peakDay ? `${peakDay.key} · ${money(peakDay.summary.totalIncome)}` : '—'}`, `Peak hour: ${peakHour ? `${String(peakHour.hour).padStart(2,'0')}:00 · ${money(peakHour.amount)}` : '—'}`, `Highest fuel day: ${fuelDay ? `${fuelDay.key} · ${money(fuelDay.summary.totalFuel)}` : '—'}`], page.margin, y, page.width - page.margin * 2); y += 6;
-    y = drawPdfSectionTitle(pdf, 'TURNOS INCLUIDOS', page.margin, y);
-    y = drawPdfShiftTable(pdf, rows, page.margin, y, page);
-    pdf.save(`taxi-report-${selectedProfile ? selectedProfile.fullName : 'GLOBAL'}-${range}-${todayISO()}.pdf`);
-    showToast('PDF exportado.');
-  } catch (error) { console.error(error); showToast('No se pudo exportar el PDF.'); }
-}
-function drawPdfSectionTitle(pdf, title, x, y) { pdf.setFont('helvetica', 'bold'); pdf.setFontSize(12); pdf.text(title, x, y); pdf.setDrawColor(170); pdf.line(x, y + 1.5, 195, y + 1.5); return y + 7; }
-function drawPdfSummaryGrid(pdf, pairs, x, y, width) { const cols = 2, colWidth = width / cols, rowHeight = 12; pdf.setFontSize(10); pairs.forEach((pair, idx) => { const row = Math.floor(idx / cols), col = idx % cols, bx = x + col * colWidth, by = y + row * rowHeight; pdf.setDrawColor(220); pdf.roundedRect(bx, by, colWidth - 3, rowHeight - 2, 2, 2); pdf.setFont('helvetica','normal'); pdf.text(pair[0], bx + 3, by + 5); pdf.setFont('helvetica','bold'); pdf.text(pair[1], bx + 3, by + 10); }); return y + Math.ceil(pairs.length / cols) * rowHeight; }
-function drawPdfTextList(pdf, lines, x, y, width) { pdf.setFont('helvetica','normal'); pdf.setFontSize(10); lines.forEach((line) => { const wrapped = pdf.splitTextToSize(line, width); pdf.text(wrapped, x, y); y += wrapped.length * 5 + 1; }); return y; }
-async function drawPdfDriverBlock(pdf, profile, x, y, width) { const boxH = 28; pdf.setDrawColor(220); pdf.roundedRect(x, y, width, boxH, 3, 3); const imgX = x + 4, imgY = y + 4; if (profile.photoUrl) { const dataUrl = await imageUrlToDataUrl(profile.photoUrl); if (dataUrl) pdf.addImage(dataUrl, 'JPEG', imgX, imgY, 18, 18); else drawPdfAvatarCircle(pdf, profile, imgX + 9, imgY + 9, 9); } else drawPdfAvatarCircle(pdf, profile, imgX + 9, imgY + 9, 9); pdf.setFont('helvetica', 'bold'); pdf.setFontSize(12); pdf.text(profile.fullName, x + 28, y + 10); pdf.setFont('helvetica', 'normal'); pdf.setFontSize(10); pdf.text(`Role: ${profile.role === 'manager' ? 'Manager / Driver' : 'Driver'}`, x + 28, y + 16); pdf.text(`Coche por defecto: ${getDefaultCarLabelForDriver(profile.staffKey) || '-'}`, x + 28, y + 22); return y + boxH; }
-function drawPdfAvatarCircle(pdf, profile, cx, cy, r) { const rgb = hexToRgb(profile.colorHex || '#1d4ed8'); pdf.setFillColor(rgb.r, rgb.g, rgb.b); pdf.circle(cx, cy, r, 'F'); pdf.setTextColor(255,255,255); pdf.setFont('helvetica','bold'); pdf.setFontSize(10); pdf.text(initials(profile.fullName), cx, cy + 1.5, { align: 'center' }); pdf.setTextColor(0,0,0); }
-function drawPdfShiftTable(pdf, rows, x, y, page) { const headers = ['Fecha','Driver','Coche','KM','Ingreso','Fuel','Spend','Neto']; const colWidths = [24,28,30,16,24,18,22,20]; const lineHeight = 7; const startX = x; const drawHeader = () => { let cursor = startX; pdf.setFont('helvetica','bold'); pdf.setFontSize(9); headers.forEach((header, index) => { pdf.setDrawColor(220); pdf.rect(cursor, y, colWidths[index], lineHeight); pdf.text(header, cursor + 2, y + 4.5); cursor += colWidths[index]; }); y += lineHeight; }; drawHeader(); pdf.setFont('helvetica','normal'); pdf.setFontSize(8); rows.forEach((row) => { if (y > page.height - 18) { pdf.addPage(); y = 16; drawHeader(); pdf.setFont('helvetica','normal'); pdf.setFontSize(8); } const cells = [row.dateKey || '', row.driverName || '', truncateText(row.vehicle || '-', 18), num(row.km).toFixed(1), money(row.totalIncome), money(row.totalFuel), money(row.totalSpending), money(row.netProfit)]; let cursor = startX; cells.forEach((cell, idx) => { pdf.setDrawColor(230); pdf.rect(cursor, y, colWidths[idx], lineHeight); pdf.text(String(cell), cursor + 2, y + 4.5, { maxWidth: colWidths[idx] - 4 }); cursor += colWidths[idx]; }); y += lineHeight; }); return y; }
+  const jsPDF = window.jspdf?.jsPDF;
+  if (!jsPDF) {
+    showToast("jsPDF not loaded.");
+    return;
+  }
 
-renderShiftPreview(); renderDashboard(); renderHistoryTable(); renderReports(); renderDriversStats(); renderDriversGrid(); renderCarsStats(); renderCarsGrid();
+  const rows = getReportRows();
+  const summary = summarizeRows(rows);
+  const range = $("reportRange").value;
+  const driverKey = isManager() ? $("reportDriverFilter").value : state.currentStaff.staffKey;
+  const selectedDriver = driverKey && driverKey !== "all" ? getDriverProfile(driverKey) : null;
+
+  const pdf = new jsPDF({ unit: "mm", format: "a4" });
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const margin = 14;
+  let y = 16;
+
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(20);
+  pdf.text("TAXI FLEET REPORT", margin, y);
+  y += 8;
+
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(10);
+  pdf.text(`Generated: ${dateTimeLabel()}`, margin, y);
+  y += 6;
+  pdf.text(`Range: ${range.toUpperCase()}`, margin, y);
+  y += 6;
+  pdf.text(`Driver: ${selectedDriver ? selectedDriver.fullName : "GLOBAL"}`, margin, y);
+  y += 10;
+
+  if (selectedDriver) {
+    y = await drawDriverPdfHeader(pdf, selectedDriver, margin, y, pageWidth - margin * 2);
+    y += 8;
+  }
+
+  y = drawPdfSectionTitle(pdf, "SUMMARY", margin, y);
+  y = drawPdfSummaryGrid(
+    pdf,
+    [
+      ["Total Income", money(summary.totalIncome)],
+      ["Total Fuel", money(summary.totalFuel)],
+      ["Total Spending", money(summary.totalSpending)],
+      ["Net Profit", money(summary.netProfit)],
+      ["KM", summary.totalKm.toFixed(1)],
+      ["KM/€", summary.kmPerEuro.toFixed(3)],
+      ["Hours", summary.totalHours.toFixed(2)],
+      ["Shifts", String(summary.count)],
+    ],
+    margin,
+    y,
+    pageWidth - margin * 2
+  );
+  y += 6;
+
+  y = drawPdfSectionTitle(pdf, "BREAKDOWN", margin, y);
+  y = drawPdfSummaryGrid(
+    pdf,
+    [
+      ["Taxímetro", money(summary.totalTaximetro)],
+      ["Cabify", money(summary.totalCabify)],
+      ["Free Now", money(summary.totalFreeNow)],
+      ["Uber", money(summary.totalUber)],
+      ["Cash", money(summary.totalCash)],
+      ["Card", money(summary.totalCard)],
+      ["Apps", money(summary.totalApps)],
+      ["Maintenance", money(summary.totalMaintenance)],
+    ],
+    margin,
+    y,
+    pageWidth - margin * 2
+  );
+  y += 6;
+
+  const peakDay = getBestDay(rows);
+  const peakHour = getPeakHour(rows);
+  const fuelDay = getHighestFuelDay(rows);
+
+  y = drawPdfSectionTitle(pdf, "PEAK ANALYTICS", margin, y);
+  y = drawPdfTextList(
+    pdf,
+    [
+      `Peak day: ${peakDay ? `${peakDay.key} · ${money(peakDay.summary.totalIncome)}` : "—"}`,
+      `Peak hour: ${peakHour ? `${peakHour.hour}:00 · ${money(peakHour.amount)}` : "—"}`,
+      `Highest fuel day: ${fuelDay ? `${fuelDay.key} · ${money(fuelDay.summary.totalFuel)}` : "—"}`,
+    ],
+    margin,
+    y,
+    pageWidth - margin * 2
+  );
+  y += 6;
+
+  y = drawPdfSectionTitle(pdf, "SHIFT LIST", margin, y);
+  drawPdfShiftTable(pdf, rows, margin, y, pageWidth, pageHeight);
+
+  const fileLabel = selectedDriver ? selectedDriver.fullName : "GLOBAL";
+  pdf.save(`fleet-report-${fileLabel}-${range}-${todayISO()}.pdf`);
+  showToast("PDF exported.");
+}
+
+function drawPdfSectionTitle(pdf, title, x, y) {
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(12);
+  pdf.text(title, x, y);
+  pdf.setDrawColor(180);
+  pdf.line(x, y + 1.5, 195, y + 1.5);
+  return y + 7;
+}
+
+function drawPdfSummaryGrid(pdf, pairs, x, y, width) {
+  const cols = 2;
+  const colWidth = width / cols;
+  const rowHeight = 12;
+
+  pdf.setFontSize(10);
+
+  pairs.forEach((pair, index) => {
+    const row = Math.floor(index / cols);
+    const col = index % cols;
+    const bx = x + col * colWidth;
+    const by = y + row * rowHeight;
+
+    pdf.setDrawColor(220);
+    pdf.roundedRect(bx, by, colWidth - 3, rowHeight - 2, 2, 2);
+
+    pdf.setFont("helvetica", "normal");
+    pdf.text(pair[0], bx + 3, by + 5);
+
+    pdf.setFont("helvetica", "bold");
+    pdf.text(pair[1], bx + 3, by + 10);
+  });
+
+  return y + Math.ceil(pairs.length / cols) * rowHeight;
+}
+
+function drawPdfTextList(pdf, lines, x, y, width) {
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(10);
+
+  lines.forEach((line) => {
+    const wrapped = pdf.splitTextToSize(line, width);
+    pdf.text(wrapped, x, y);
+    y += wrapped.length * 5 + 1;
+  });
+
+  return y;
+}
+
+async function drawDriverPdfHeader(pdf, profile, x, y, width) {
+  const boxH = 28;
+
+  pdf.setDrawColor(220);
+  pdf.roundedRect(x, y, width, boxH, 3, 3);
+
+  const imageX = x + 4;
+  const imageY = y + 4;
+
+  if (profile.photoUrl) {
+    const dataUrl = await imageUrlToDataUrl(profile.photoUrl);
+    if (dataUrl) {
+      pdf.addImage(dataUrl, "JPEG", imageX, imageY, 18, 18);
+    } else {
+      drawPdfAvatarCircle(pdf, profile, imageX + 9, imageY + 9, 9);
+    }
+  } else {
+    drawPdfAvatarCircle(pdf, profile, imageX + 9, imageY + 9, 9);
+  }
+
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(12);
+  pdf.text(profile.fullName, x + 28, y + 10);
+
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(10);
+  pdf.text(`Role: ${profile.role === "manager" ? "Manager / Driver" : "Driver"}`, x + 28, y + 16);
+  pdf.text(`Default car: ${getDefaultCarLabel(profile) || "-"}`, x + 28, y + 22);
+
+  return y + boxH;
+}
+
+function drawPdfAvatarCircle(pdf, profile, cx, cy, r) {
+  const rgb = hexToRgb(getColorHex(profile));
+  pdf.setFillColor(rgb.r, rgb.g, rgb.b);
+  pdf.circle(cx, cy, r, "F");
+  pdf.setTextColor(255, 255, 255);
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(10);
+  pdf.text(initials(profile.fullName), cx, cy + 1.5, { align: "center" });
+  pdf.setTextColor(0, 0, 0);
+}
+
+function drawPdfShiftTable(pdf, rows, x, y, pageWidth, pageHeight) {
+  const headers = ["Date", "Driver", "Car", "KM", "Income", "Fuel", "Spend", "Net"];
+  const colWidths = [24, 28, 34, 16, 24, 18, 22, 20];
+  const lineHeight = 7;
+
+  const drawHeader = () => {
+    let cursor = x;
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(9);
+    headers.forEach((header, idx) => {
+      pdf.setDrawColor(220);
+      pdf.rect(cursor, y, colWidths[idx], lineHeight);
+      pdf.text(header, cursor + 2, y + 4.5);
+      cursor += colWidths[idx];
+    });
+    y += lineHeight;
+  };
+
+  drawHeader();
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(8);
+
+  rows.forEach((row) => {
+    if (y > pageHeight - 18) {
+      pdf.addPage();
+      y = 16;
+      drawHeader();
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(8);
+    }
+
+    const cells = [
+      row.dateKey || "",
+      row.driverName || "",
+      row.vehicle || "",
+      num(row.km).toFixed(1),
+      money(row.totalIncome),
+      money(row.totalFuel),
+      money(row.totalSpending),
+      money(row.netProfit),
+    ];
+
+    let cursor = x;
+    cells.forEach((cell, idx) => {
+      pdf.setDrawColor(230);
+      pdf.rect(cursor, y, colWidths[idx], lineHeight);
+      pdf.text(String(cell), cursor + 2, y + 4.5, {
+        maxWidth: colWidths[idx] - 4,
+      });
+      cursor += colWidths[idx];
+    });
+
+    y += lineHeight;
+  });
+}
+
+async function imageUrlToDataUrl(url) {
+  try {
+    const response = await fetch(url);
+    const blob = await response.blob();
+    return await blobToDataUrl(blob);
+  } catch (error) {
+    console.warn("Image load for PDF failed:", error);
+    return "";
+  }
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+function hexToRgb(hex) {
+  const clean = String(hex).replace("#", "");
+  const full =
+    clean.length === 3
+      ? clean
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : clean.padEnd(6, "0");
+
+  const n = parseInt(full, 16);
+  return {
+    r: (n >> 16) & 255,
+    g: (n >> 8) & 255,
+    b: n & 255,
+  };
+}
+
+/* =========================================================
+   INITIAL LOAD
+========================================================= */
+await loadPublicProfilesForLogin();
+updateLoginHint();
+renderShiftPreview();
+renderDashboard();
+renderHistoryTable();
+renderReports();
+renderDriversView();
+renderCarsView();
