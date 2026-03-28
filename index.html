@@ -2,52 +2,41 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0, viewport-fit=cover"
-  />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Taxi Fleet Cloud Manager Pro</title>
-  <meta
-    name="description"
-    content="Gestión profesional de flota taxi con conductores, coches, ingresos, gastos, combustible, reportes, gráficos y PDF."
-  />
+  <meta name="description" content="Gestión profesional de flota taxi con conductores, coches, ingresos, combustible, reportes, gráficos y PDF." />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body data-theme="light">
   <div id="toast" class="toast hidden" aria-live="polite"></div>
 
-  <!-- AUTH -->
   <section id="authView" class="auth-shell">
     <div class="auth-card">
       <div class="auth-top">
         <div class="badge">Cloud Pro</div>
-        <button id="themeToggleAuthBtn" class="ghost-btn" type="button" aria-label="Cambiar tema">
-          Night mode
-        </button>
+        <button id="themeToggleAuthBtn" class="ghost-btn" type="button">Night mode</button>
       </div>
 
       <div class="auth-brand">
         <h1>TAXI FLEET CLOUD MANAGER</h1>
-        <p class="muted">
-          Gestión profesional de conductores, coches, ingresos, combustible, reportes y PDF
-        </p>
+        <p class="muted">Acceso profesional · Conductores · Coches · Ingresos · Fuel · Reportes</p>
       </div>
 
       <div class="login-cards">
-        <div class="login-card manager-card">
+        <button class="login-card manager-card" type="button" data-login-preset="mudassar">
           <div class="login-card-title">MUDASSAR</div>
           <div class="login-card-sub">Manager / Driver</div>
-        </div>
+        </button>
 
-        <div class="login-card">
+        <button class="login-card" type="button" data-login-preset="saqlain">
           <div class="login-card-title">SAQLAIN</div>
           <div class="login-card-sub">Driver</div>
-        </div>
+        </button>
 
-        <div class="login-card">
+        <button class="login-card" type="button" data-login-preset="shujaat">
           <div class="login-card-title">SHUJAAT</div>
           <div class="login-card-sub">Driver</div>
-        </div>
+        </button>
       </div>
 
       <form id="loginForm" class="auth-form" autocomplete="off">
@@ -60,7 +49,7 @@
           </select>
         </label>
 
-        <label id="pinWrap">
+        <label>
           <span>PIN</span>
           <input
             id="loginPin"
@@ -73,19 +62,15 @@
         </label>
 
         <div id="loginHint" class="auth-note muted">
-          Introduce tus credenciales para continuar.
+          Cada conductor entra con su acceso y ve solo lo suyo.
         </div>
 
-        <button id="loginBtn" class="primary-btn full" type="submit">
-          Entrar
-        </button>
+        <button id="loginBtn" class="primary-btn full" type="submit">Entrar</button>
       </form>
     </div>
   </section>
 
-  <!-- APP -->
   <section id="appView" class="app-shell hidden">
-    <!-- SIDEBAR -->
     <aside class="sidebar">
       <div class="sidebar-top">
         <div class="badge">Live</div>
@@ -107,7 +92,7 @@
         <button class="nav-btn" data-view="shiftView" type="button">Nuevo turno</button>
         <button class="nav-btn" data-view="historyView" type="button">Historial</button>
         <button class="nav-btn" data-view="reportsView" type="button">Reportes</button>
-        <button class="nav-btn" data-view="driversView" type="button">Drivers</button>
+        <button class="nav-btn" data-view="driversView" type="button">Perfil / Drivers</button>
         <button class="nav-btn" data-view="carsView" type="button">Cars</button>
       </nav>
 
@@ -117,23 +102,19 @@
       </div>
     </aside>
 
-    <!-- MAIN -->
     <main class="main">
       <header class="topbar">
         <div>
           <h1 id="pageTitle">Dashboard</h1>
-          <p id="pageSubtitle" class="muted">
-            Resumen en vivo de ingresos, combustible, gastos y neto
-          </p>
+          <p id="pageSubtitle" class="muted">Resumen en vivo de ingresos, combustible, gastos y neto</p>
         </div>
-
         <div class="topbar-right">
           <div id="topbarDate" class="date-pill"></div>
         </div>
       </header>
 
-      <!-- DASHBOARD -->
       <section id="dashboardView" class="view">
+        <div id="dashboardProfileHero" class="card dashboard-profile-hero"></div>
         <div id="dashboardStats" class="stats-grid"></div>
 
         <div class="dashboard-grid">
@@ -178,7 +159,9 @@
               <h3>Gráfico ingresos</h3>
               <p class="muted">Evolución temporal</p>
             </div>
-            <canvas id="incomeChart" height="130"></canvas>
+            <div class="chart-wrap">
+              <canvas id="incomeChart"></canvas>
+            </div>
           </div>
 
           <div class="card">
@@ -186,23 +169,21 @@
               <h3>Gráfico fuel / spending</h3>
               <p class="muted">Combustible frente a gasto</p>
             </div>
-            <canvas id="spendingChart" height="130"></canvas>
+            <div class="chart-wrap">
+              <canvas id="spendingChart"></canvas>
+            </div>
           </div>
         </div>
       </section>
 
-      <!-- SHIFT -->
       <section id="shiftView" class="view hidden">
         <div class="page-head">
           <h3>Nuevo turno</h3>
-          <p class="muted">
-            El manager puede introducir todos los datos en nombre de cualquier conductor
-          </p>
+          <p class="muted">El manager puede introducir datos por cualquier conductor. Cada driver normal guarda solo lo suyo.</p>
         </div>
 
         <div class="shift-layout">
           <form id="shiftForm" class="card shift-form" autocomplete="off">
-            <!-- A. DATOS -->
             <div class="form-section">
               <div class="section-title-wrap">
                 <div class="section-badge">A</div>
@@ -252,13 +233,12 @@
               </div>
             </div>
 
-            <!-- B. INGRESOS -->
             <div class="form-section">
               <div class="section-title-wrap">
                 <div class="section-badge income">B</div>
                 <div>
                   <h3>Ingresos</h3>
-                  <p class="muted">Bloques visuales separados por app</p>
+                  <p class="muted">Separados por app</p>
                 </div>
               </div>
 
@@ -268,16 +248,9 @@
                     <h4>TAXÍMETRO</h4>
                     <div id="taximetroTotalBadge" class="amount-badge">€0.00</div>
                   </div>
-
                   <div class="grid-2">
-                    <label>
-                      <span>Efectivo</span>
-                      <input id="sfTaximetroCash" type="number" step="0.01" min="0" value="0" />
-                    </label>
-                    <label>
-                      <span>Tarjeta</span>
-                      <input id="sfTaximetroCard" type="number" step="0.01" min="0" value="0" />
-                    </label>
+                    <label><span>Efectivo</span><input id="sfTaximetroCash" type="number" step="0.01" min="0" value="0" /></label>
+                    <label><span>Tarjeta</span><input id="sfTaximetroCard" type="number" step="0.01" min="0" value="0" /></label>
                   </div>
                 </div>
 
@@ -286,16 +259,9 @@
                     <h4>CABIFY</h4>
                     <div id="cabifyTotalBadge" class="amount-badge">€0.00</div>
                   </div>
-
                   <div class="grid-2">
-                    <label>
-                      <span>Efectivo</span>
-                      <input id="sfCabifyCash" type="number" step="0.01" min="0" value="0" />
-                    </label>
-                    <label>
-                      <span>Pagado por la app</span>
-                      <input id="sfCabifyApp" type="number" step="0.01" min="0" value="0" />
-                    </label>
+                    <label><span>Efectivo</span><input id="sfCabifyCash" type="number" step="0.01" min="0" value="0" /></label>
+                    <label><span>Pagado por la app</span><input id="sfCabifyApp" type="number" step="0.01" min="0" value="0" /></label>
                   </div>
                 </div>
 
@@ -304,16 +270,9 @@
                     <h4>FREE NOW</h4>
                     <div id="freenowTotalBadge" class="amount-badge">€0.00</div>
                   </div>
-
                   <div class="grid-2">
-                    <label>
-                      <span>Efectivo</span>
-                      <input id="sfFreeNowCash" type="number" step="0.01" min="0" value="0" />
-                    </label>
-                    <label>
-                      <span>Pagado por la app</span>
-                      <input id="sfFreeNowApp" type="number" step="0.01" min="0" value="0" />
-                    </label>
+                    <label><span>Efectivo</span><input id="sfFreeNowCash" type="number" step="0.01" min="0" value="0" /></label>
+                    <label><span>Pagado por la app</span><input id="sfFreeNowApp" type="number" step="0.01" min="0" value="0" /></label>
                   </div>
                 </div>
 
@@ -322,37 +281,20 @@
                     <h4>UBER</h4>
                     <div id="uberTotalBadge" class="amount-badge">€0.00</div>
                   </div>
-
                   <div class="grid-1">
-                    <label>
-                      <span>Pagado por la app</span>
-                      <input id="sfUberApp" type="number" step="0.01" min="0" value="0" />
-                    </label>
+                    <label><span>Pagado por la app</span><input id="sfUberApp" type="number" step="0.01" min="0" value="0" /></label>
                   </div>
                 </div>
               </div>
 
               <div class="summary-bar income-summary-bar">
-                <div class="summary-item">
-                  <span>Total efectivo</span>
-                  <strong id="sumCash">€0.00</strong>
-                </div>
-                <div class="summary-item">
-                  <span>Total tarjeta</span>
-                  <strong id="sumCard">€0.00</strong>
-                </div>
-                <div class="summary-item">
-                  <span>Total apps</span>
-                  <strong id="sumApps">€0.00</strong>
-                </div>
-                <div class="summary-item total">
-                  <span>Total ingresos</span>
-                  <strong id="sumIncome">€0.00</strong>
-                </div>
+                <div class="summary-item"><span>Total efectivo</span><strong id="sumCash">€0.00</strong></div>
+                <div class="summary-item"><span>Total tarjeta</span><strong id="sumCard">€0.00</strong></div>
+                <div class="summary-item"><span>Total apps</span><strong id="sumApps">€0.00</strong></div>
+                <div class="summary-item total"><span>Total ingresos</span><strong id="sumIncome">€0.00</strong></div>
               </div>
             </div>
 
-            <!-- C. GASTOS -->
             <div class="form-section">
               <div class="section-title-wrap">
                 <div class="section-badge spending">C</div>
@@ -368,24 +310,11 @@
                     <h4>FUEL</h4>
                     <div id="fuelTotalBadge" class="amount-badge fuel">€0.00</div>
                   </div>
-
                   <div class="grid-4">
-                    <label>
-                      <span>Fuel 1</span>
-                      <input id="sfFuel1" type="number" step="0.01" min="0" value="0" />
-                    </label>
-                    <label>
-                      <span>Fuel 2</span>
-                      <input id="sfFuel2" type="number" step="0.01" min="0" value="0" />
-                    </label>
-                    <label>
-                      <span>Fuel 3</span>
-                      <input id="sfFuel3" type="number" step="0.01" min="0" value="0" />
-                    </label>
-                    <label>
-                      <span>Other fuel</span>
-                      <input id="sfFuelOther" type="number" step="0.01" min="0" value="0" />
-                    </label>
+                    <label><span>Fuel 1</span><input id="sfFuel1" type="number" step="0.01" min="0" value="0" /></label>
+                    <label><span>Fuel 2</span><input id="sfFuel2" type="number" step="0.01" min="0" value="0" /></label>
+                    <label><span>Fuel 3</span><input id="sfFuel3" type="number" step="0.01" min="0" value="0" /></label>
+                    <label><span>Other fuel</span><input id="sfFuelOther" type="number" step="0.01" min="0" value="0" /></label>
                   </div>
                 </div>
 
@@ -394,24 +323,11 @@
                     <h4>GASTOS</h4>
                     <div id="expensesTotalBadge" class="amount-badge spending">€0.00</div>
                   </div>
-
                   <div class="grid-4">
-                    <label>
-                      <span>Parking</span>
-                      <input id="sfParking" type="number" step="0.01" min="0" value="0" />
-                    </label>
-                    <label>
-                      <span>Peajes</span>
-                      <input id="sfTolls" type="number" step="0.01" min="0" value="0" />
-                    </label>
-                    <label>
-                      <span>Limpieza</span>
-                      <input id="sfCleaning" type="number" step="0.01" min="0" value="0" />
-                    </label>
-                    <label>
-                      <span>Otros gastos</span>
-                      <input id="sfOtherExpenses" type="number" step="0.01" min="0" value="0" />
-                    </label>
+                    <label><span>Parking</span><input id="sfParking" type="number" step="0.01" min="0" value="0" /></label>
+                    <label><span>Peajes</span><input id="sfTolls" type="number" step="0.01" min="0" value="0" /></label>
+                    <label><span>Limpieza</span><input id="sfCleaning" type="number" step="0.01" min="0" value="0" /></label>
+                    <label><span>Otros gastos</span><input id="sfOtherExpenses" type="number" step="0.01" min="0" value="0" /></label>
                   </div>
                 </div>
 
@@ -420,57 +336,25 @@
                     <h4>MANTENIMIENTO</h4>
                     <div id="maintenanceTotalBadge" class="amount-badge maintenance">€0.00</div>
                   </div>
-
                   <div class="grid-3">
-                    <label>
-                      <span>Lavado</span>
-                      <input id="sfWash" type="number" step="0.01" min="0" value="0" />
-                    </label>
-                    <label>
-                      <span>Aceite</span>
-                      <input id="sfOil" type="number" step="0.01" min="0" value="0" />
-                    </label>
-                    <label>
-                      <span>Ruedas</span>
-                      <input id="sfTyres" type="number" step="0.01" min="0" value="0" />
-                    </label>
-                    <label>
-                      <span>Taller</span>
-                      <input id="sfWorkshop" type="number" step="0.01" min="0" value="0" />
-                    </label>
-                    <label>
-                      <span>ITV</span>
-                      <input id="sfItv" type="number" step="0.01" min="0" value="0" />
-                    </label>
-                    <label>
-                      <span>Otros mantenimiento</span>
-                      <input id="sfOtherMaintenance" type="number" step="0.01" min="0" value="0" />
-                    </label>
+                    <label><span>Lavado</span><input id="sfWash" type="number" step="0.01" min="0" value="0" /></label>
+                    <label><span>Aceite</span><input id="sfOil" type="number" step="0.01" min="0" value="0" /></label>
+                    <label><span>Ruedas</span><input id="sfTyres" type="number" step="0.01" min="0" value="0" /></label>
+                    <label><span>Taller</span><input id="sfWorkshop" type="number" step="0.01" min="0" value="0" /></label>
+                    <label><span>ITV</span><input id="sfItv" type="number" step="0.01" min="0" value="0" /></label>
+                    <label><span>Otros mantenimiento</span><input id="sfOtherMaintenance" type="number" step="0.01" min="0" value="0" /></label>
                   </div>
                 </div>
               </div>
 
               <div class="summary-bar spending-summary-bar">
-                <div class="summary-item">
-                  <span>Total fuel</span>
-                  <strong id="sumFuel">€0.00</strong>
-                </div>
-                <div class="summary-item">
-                  <span>Total gastos</span>
-                  <strong id="sumExpenses">€0.00</strong>
-                </div>
-                <div class="summary-item">
-                  <span>Total mantenimiento</span>
-                  <strong id="sumMaintenance">€0.00</strong>
-                </div>
-                <div class="summary-item total">
-                  <span>Total spending</span>
-                  <strong id="sumSpending">€0.00</strong>
-                </div>
+                <div class="summary-item"><span>Total fuel</span><strong id="sumFuel">€0.00</strong></div>
+                <div class="summary-item"><span>Total gastos</span><strong id="sumExpenses">€0.00</strong></div>
+                <div class="summary-item"><span>Total mantenimiento</span><strong id="sumMaintenance">€0.00</strong></div>
+                <div class="summary-item total"><span>Total spending</span><strong id="sumSpending">€0.00</strong></div>
               </div>
             </div>
 
-            <!-- D. FINAL -->
             <div class="form-section final-result-section">
               <div class="section-title-wrap">
                 <div class="section-badge final">D</div>
@@ -481,22 +365,10 @@
               </div>
 
               <div class="final-summary">
-                <div class="final-summary-card">
-                  <span>Total ingresos</span>
-                  <strong id="finalIncome">€0.00</strong>
-                </div>
-                <div class="final-summary-card">
-                  <span>Total fuel</span>
-                  <strong id="finalFuel">€0.00</strong>
-                </div>
-                <div class="final-summary-card">
-                  <span>Total spending</span>
-                  <strong id="finalSpending">€0.00</strong>
-                </div>
-                <div class="final-summary-card highlight">
-                  <span>Beneficio neto</span>
-                  <strong id="finalNet">€0.00</strong>
-                </div>
+                <div class="final-summary-card"><span>Total ingresos</span><strong id="finalIncome">€0.00</strong></div>
+                <div class="final-summary-card"><span>Total fuel</span><strong id="finalFuel">€0.00</strong></div>
+                <div class="final-summary-card"><span>Total spending</span><strong id="finalSpending">€0.00</strong></div>
+                <div class="final-summary-card highlight"><span>Beneficio neto</span><strong id="finalNet">€0.00</strong></div>
               </div>
             </div>
 
@@ -516,39 +388,18 @@
         </div>
       </section>
 
-      <!-- HISTORY -->
       <section id="historyView" class="view hidden">
         <div class="page-head">
           <h3>Historial de turnos</h3>
-          <p class="muted">
-            Buscar por fecha, driver o coche · 30 por página
-          </p>
+          <p class="muted">Buscar por fecha, driver o coche · 30 por página</p>
         </div>
 
         <div class="card">
           <div class="history-filters">
-            <label>
-              <span>Buscar</span>
-              <input id="historySearch" type="text" placeholder="Driver, coche, nota..." />
-            </label>
-
-            <label>
-              <span>Fecha</span>
-              <input id="historyDateFilter" type="date" />
-            </label>
-
-            <label>
-              <span>Driver</span>
-              <select id="historyDriverFilter">
-                <option value="all">All</option>
-              </select>
-            </label>
-
-            <label>
-              <span>Coche</span>
-              <input id="historyCarFilter" type="text" placeholder="Matrícula o alias" />
-            </label>
-
+            <label><span>Buscar</span><input id="historySearch" type="text" placeholder="Driver, coche, nota..." /></label>
+            <label><span>Fecha</span><input id="historyDateFilter" type="date" /></label>
+            <label><span>Driver</span><select id="historyDriverFilter"><option value="all">All</option></select></label>
+            <label><span>Coche</span><input id="historyCarFilter" type="text" placeholder="Matrícula o alias" /></label>
             <div class="history-filter-actions">
               <button id="clearHistoryFiltersBtn" class="secondary-btn" type="button">Limpiar filtros</button>
             </div>
@@ -586,13 +437,10 @@
         </div>
       </section>
 
-      <!-- REPORTS -->
       <section id="reportsView" class="view hidden">
         <div class="page-head">
           <h3>Reportes</h3>
-          <p class="muted">
-            Diario, semanal, mensual y anual con gráficos y PDF
-          </p>
+          <p class="muted">Diario, semanal, mensual y anual con gráficos y PDF</p>
         </div>
 
         <div class="card">
@@ -610,9 +458,7 @@
 
             <label id="reportDriverWrap">
               <span>Driver</span>
-              <select id="reportDriverFilter">
-                <option value="all">All</option>
-              </select>
+              <select id="reportDriverFilter"><option value="all">All</option></select>
             </label>
 
             <label>
@@ -626,6 +472,7 @@
           </div>
         </div>
 
+        <div id="reportProfileHero" class="card report-profile-hero hidden"></div>
         <div id="reportStats" class="stats-grid"></div>
 
         <div class="dashboard-grid">
@@ -670,7 +517,7 @@
               <h3>Gráfico del reporte</h3>
               <p class="muted">Ingresos, fuel y neto</p>
             </div>
-            <canvas id="reportChart" height="130"></canvas>
+            <div class="chart-wrap"><canvas id="reportChart"></canvas></div>
           </div>
 
           <div class="card">
@@ -678,62 +525,31 @@
               <h3>Distribución por app</h3>
               <p class="muted">Taxímetro, Cabify, Free Now, Uber</p>
             </div>
-            <canvas id="appBreakdownChart" height="130"></canvas>
+            <div class="chart-wrap"><canvas id="appBreakdownChart"></canvas></div>
           </div>
         </div>
       </section>
 
-      <!-- DRIVERS -->
       <section id="driversView" class="view hidden">
         <div class="page-head">
-          <h3>Drivers</h3>
-          <p class="muted">
-            Crear nuevos, ver existentes, cambiar fotos y datos
-          </p>
+          <h3>Perfil / Drivers</h3>
+          <p class="muted">Cada conductor ve solo su perfil. El manager gestiona todos.</p>
         </div>
 
         <div class="card driver-create-card">
           <div class="card-head">
             <h3>Añadir nuevo driver</h3>
-            <p class="muted">Manager only</p>
+            <p class="muted">Solo manager</p>
           </div>
 
           <form id="newDriverForm" class="grid-4" autocomplete="off">
-            <label>
-              <span>Nombre completo</span>
-              <input id="newDriverName" type="text" placeholder="Nombre del conductor" />
-            </label>
-
-            <label>
-              <span>Email</span>
-              <input id="newDriverEmail" type="email" placeholder="email@dominio.com" />
-            </label>
-
-            <label>
-              <span>PIN</span>
-              <input id="newDriverPin" type="password" inputmode="numeric" placeholder="PIN privado" />
-            </label>
-
-            <label>
-              <span>Vehículo por defecto</span>
-              <select id="newDriverCarId"></select>
-            </label>
-
-            <label>
-              <span>Teléfono</span>
-              <input id="newDriverPhone" type="text" placeholder="Teléfono" />
-            </label>
-
-            <label>
-              <span>Color</span>
-              <input id="newDriverColor" type="color" value="#16a34a" />
-            </label>
-
-            <label>
-              <span>Alias interno</span>
-              <input id="newDriverAlias" type="text" placeholder="Alias / clave" />
-            </label>
-
+            <label><span>Nombre completo</span><input id="newDriverName" type="text" placeholder="Nombre del conductor" /></label>
+            <label><span>Email</span><input id="newDriverEmail" type="email" placeholder="email@dominio.com" /></label>
+            <label><span>PIN</span><input id="newDriverPin" type="password" inputmode="numeric" placeholder="PIN privado" /></label>
+            <label><span>Vehículo por defecto</span><select id="newDriverCarId"></select></label>
+            <label><span>Teléfono</span><input id="newDriverPhone" type="text" placeholder="Teléfono" /></label>
+            <label><span>Color</span><input id="newDriverColor" type="color" value="#16a34a" /></label>
+            <label><span>Alias interno</span><input id="newDriverAlias" type="text" placeholder="Alias / clave" /></label>
             <div class="driver-create-actions">
               <button id="createDriverBtn" class="primary-btn" type="button">Crear driver</button>
             </div>
@@ -744,37 +560,22 @@
         <div id="driversGrid" class="cards-grid"></div>
       </section>
 
-      <!-- CARS -->
       <section id="carsView" class="view hidden">
         <div class="page-head">
           <h3>Cars</h3>
-          <p class="muted">
-            Ver coches existentes, añadir nuevos y editar datos
-          </p>
+          <p class="muted">Ver existentes, añadir nuevos y editar datos</p>
         </div>
 
         <div class="card car-create-card">
           <div class="card-head">
             <h3>Añadir coche</h3>
-            <p class="muted">Manager only</p>
+            <p class="muted">Solo manager</p>
           </div>
 
           <form id="newCarForm" class="grid-4" autocomplete="off">
-            <label>
-              <span>Matrícula</span>
-              <input id="newCarPlate" type="text" placeholder="1234-ABC" />
-            </label>
-
-            <label>
-              <span>Marca / modelo</span>
-              <input id="newCarModel" type="text" placeholder="Toyota Prius" />
-            </label>
-
-            <label>
-              <span>Alias</span>
-              <input id="newCarAlias" type="text" placeholder="Taxi 1" />
-            </label>
-
+            <label><span>Matrícula</span><input id="newCarPlate" type="text" placeholder="1234-ABC" /></label>
+            <label><span>Marca / modelo</span><input id="newCarModel" type="text" placeholder="Toyota Prius" /></label>
+            <label><span>Alias</span><input id="newCarAlias" type="text" placeholder="Taxi 1" /></label>
             <label>
               <span>Estado</span>
               <select id="newCarStatus">
@@ -783,32 +584,11 @@
                 <option value="inactive">Inactivo</option>
               </select>
             </label>
-
-            <label>
-              <span>KM actual</span>
-              <input id="newCarKm" type="number" step="0.1" min="0" placeholder="0" />
-            </label>
-
-            <label>
-              <span>Conductor por defecto</span>
-              <select id="newCarDriverKey"></select>
-            </label>
-
-            <label>
-              <span>ITV</span>
-              <input id="newCarItv" type="date" />
-            </label>
-
-            <label>
-              <span>Seguro</span>
-              <input id="newCarInsurance" type="date" />
-            </label>
-
-            <label class="grid-span-2">
-              <span>Notas</span>
-              <input id="newCarNotes" type="text" placeholder="Notas del coche" />
-            </label>
-
+            <label><span>KM actual</span><input id="newCarKm" type="number" step="0.1" min="0" placeholder="0" /></label>
+            <label><span>Conductor por defecto</span><select id="newCarDriverKey"></select></label>
+            <label><span>ITV</span><input id="newCarItv" type="date" /></label>
+            <label><span>Seguro</span><input id="newCarInsurance" type="date" /></label>
+            <label class="grid-span-2"><span>Notas</span><input id="newCarNotes" type="text" placeholder="Notas del coche" /></label>
             <div class="car-create-actions">
               <button id="createCarBtn" class="primary-btn" type="button">Crear coche</button>
             </div>
@@ -821,7 +601,6 @@
     </main>
   </section>
 
-  <!-- DRIVER PHOTO MODAL -->
   <div id="photoModal" class="modal hidden" aria-hidden="true">
     <div class="modal-backdrop" data-close-photo-modal="true"></div>
     <div class="modal-card">
@@ -830,9 +609,7 @@
           <h3 id="photoModalTitle">Foto del driver</h3>
           <p class="muted">Sube imagen o haz foto con el móvil</p>
         </div>
-        <button id="closePhotoModalBtn" class="ghost-btn" type="button" aria-label="Cerrar">
-          ✕
-        </button>
+        <button id="closePhotoModalBtn" class="ghost-btn" type="button" aria-label="Cerrar">✕</button>
       </div>
 
       <div class="photo-preview-wrap">
@@ -848,12 +625,7 @@
 
         <label class="upload-box">
           <span>Tomar foto</span>
-          <input
-            id="driverPhotoCameraInput"
-            type="file"
-            accept="image/*"
-            capture="environment"
-          />
+          <input id="driverPhotoCameraInput" type="file" accept="image/*" capture="environment" />
         </label>
       </div>
 
